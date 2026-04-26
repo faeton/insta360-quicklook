@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.faeton.insta360ql.exp03</string>
+    <key>CFBundleName</key>
+    <string>Insta360QL Exp03</string>
+    <key>CFBundleDisplayName</key>
+    <string>Insta360QL Exp03</string>
+    <key>CFBundleExecutable</key>
+    <string>Insta360QLExp03</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.insta360.insv</string>
+            <key>UTTypeDescription</key>
+            <string>Insta360 Panoramic Video</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.mpeg-4</string>
+                <string>public.movie</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>insv</string>
+                    <string>lrv</string>
+                </array>
+                <key>public.mime-type</key>
+                <array>
+                    <string>video/mp4</string>
+                </array>
+            </dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.insta360.insp</string>
+            <key>UTTypeDescription</key>
+            <string>Insta360 Panoramic Image</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.jpeg</string>
+                <string>public.image</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>insp</string>
+                </array>
+                <key>public.mime-type</key>
+                <array>
+                    <string>image/jpeg</string>
+                </array>
+            </dict>
+        </dict>
+    </array>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Insta360 Panoramic Video</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.insta360.insv</string>
+            </array>
+            <key>LSHandlerRank</key>
+            <string>None</string>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Insta360 Panoramic Image</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.insta360.insp</string>
+            </array>
+            <key>LSHandlerRank</key>
+            <string>None</string>
+        </dict>
+    </array>
+</dict>
+</plist>

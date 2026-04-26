@@ -2,17 +2,28 @@
 
 > Native macOS Quick Look App Extension that adds **Space-bar preview** and **Finder thumbnails** for Insta360 files (`.insv`, `.insp`, `.lrv`) on macOS Sequoia (15) and Tahoe (26).
 
+> **Status (2026-04-26):** Both Thumbnail and Preview extensions proven
+> end-to-end on Tahoe (macOS 26.4.1). HEVC 2.5 GB `.insv` shows real
+> frame in Finder; Space-press opens video player with timeline +
+> controls; `.insv` automatically substituted with paired `.lrv` proxy
+> (smaller, dual-fisheye). Ready to assemble production `Insta360QuickLook.app`.
+> See `experiments/findings.md` for the full empirical story.
+
 ## Why this exists
 
 ### The user-visible bug
-On macOS Sequoia/Tahoe, pressing Space on an Insta360 file in Finder either does nothing or shows a generic icon. There are several layered reasons:
+On macOS Sequoia/Tahoe, pressing Space on an Insta360 file in Finder either does nothing or shows a generic icon. The actual chain (verified empirically — see `experiments/findings.md`):
 
 1. **Unknown extensions** — `.insv`, `.insp`, `.lrv` are not recognized by macOS out of the box, so files resolve to dynamic UTIs (`dyn.ah62d4rv4ge80w5xxs2` etc.). LaunchServices can't route them to any preview handler.
-2. **Insta360 Studio's bundled QL extension is broken** — `/Applications/Insta360 Studio.app/Contents/PlugIns/QuickLookHost.app` ships modern `Preview.appex` + `Thumbnail.appex`, but:
-   - `QuickLookHost.app` is buried under `PlugIns/` of Studio. LaunchServices only scans top-level `.app` bundles in `/Applications`, `~/Applications`, etc., so it never sees the host and never registers the appex.
-   - The appex declares only `dyn.*` UTIs in `QLSupportedContentTypes`. Since Sequoia, Apple's Quick Look daemon does not route through `dyn.*` UTIs to third-party extensions (security tightening). So even if the host were discovered, the extension wouldn't activate for real `.insv` files.
-3. **Apple's built-in QuickTime thumbnailer refuses HEVC `.insv`** — even after we declare `.insv` as `public.mpeg-4`-conformant via `UTExportedTypeDeclarations` (so the file is properly typed and Apple's built-in handlers take over), QuickTime's sandboxed thumbnail process refuses HEVC streams whose `pix_fmt = yuvj420p` and `color_range = pc` (full-range YUV — what action cameras emit). Same bug hits GoPro and DJI HEVC. CLI `qlmanage -t` works because it runs in a less-restricted context. Finder doesn't.
-4. **Legacy `.qlgenerator` plugin is dead** — Apple removed loading of the old `.qlgenerator` API in Sequoia. Insta360's own legacy plugin (`/Library/QuickLook/QLInsta360Picture.qlgenerator`) was non-functional; we deleted it.
+2. **AVFoundation is extension-gated, not UTI-gated** — even after declaring `.insv` as `public.mpeg-4`-conformant, `AVURLAsset(url:)` returns `-11828 "Cannot Open"` for any path ending in `.insv`/`.lrv`. AVFoundation's demuxer-routing reads the filename extension, ignoring our UTI declaration. `AVURLAssetOverrideMIMETypeKey` does not help.
+3. **Finder's Space → ThumbnailsAgent fails silently** — `com.apple.quicklook.ThumbnailsAgent` tries the standard AVFoundation route, gets -11828, returns `null` in 0.249s without consulting any extension. CLI `qlmanage -t` follows a different code path that *does* succeed, which is why earlier diagnosis blamed HEVC pix_fmt — that hypothesis is **false**.
+4. **Insta360 Studio's bundled QL extension is invisible to LaunchServices** — `/Applications/Insta360 Studio.app/Contents/PlugIns/QuickLookHost.app` is buried under `PlugIns/`, so LaunchServices never registers it. `pluginkit` confirms zero Insta360 QL providers ever load.
+5. **What you actually see in Finder** is Studio's `DocumentIcon1.icns` from its document-type claim — not a Quick Look thumbnail at all.
+6. **Legacy `.qlgenerator` plugin is dead** — Apple removed `.qlgenerator` loading in Sequoia.
+
+### The fix that works (and why HEVC is a red herring)
+
+Hardlink the source file to `<tmp>/<uuid>.mp4` and feed *that* path to AVAssetImageGenerator / AVPlayer. AVFoundation opens it instantly — HEVC, full-range YUV, 2.5 GB, all fine. Decode of the first I-frame takes ~0.1s regardless of file size. The whole "HEVC pix_fmt rejection" story dissolves: it never was the bug.
 
 ### What our previous workaround does and doesn't fix
 
@@ -29,9 +40,9 @@ This:
 
 A proper, ad-hoc-signed Quick Look App Extension bundle that:
 
-1. Declares the same UTIs as our existing stub (so we replace the stub entirely — single source of truth).
-2. Provides a `Thumbnail.appex` that generates thumbnails using `AVAssetImageGenerator` from our own (less-sandboxed) extension process, bypassing Apple's HEVC-pix_fmt rejection. For `.insp`, just decodes the JPEG.
-3. Provides a `Preview.appex` that hands the URL back to the system with the proper `contentType` so the system's built-in AVKit player (which has fewer restrictions for *playback* than the thumbnail generator) can render Space-press preview.
+1. Declares Insta360 UTIs via `UTImportedTypeDeclarations` (we don't own the `com.insta360.*` namespace) and replaces our existing stub entirely.
+2. Provides a `Thumbnail.appex` that hardlinks the file to `<tmp>/<uuid>.mp4` and runs `AVAssetImageGenerator` on the hardlink. For `.insp`, uses `CGImageSourceCreateThumbnailAtIndex` directly. **Proven working** in exp 02.
+3. Provides a `Preview.appex` as an `NSViewController` conforming to `QLPreviewingController`, with an `AVPlayerView` (or `AVPlayerLayer` fallback) playing from the same hardlink. The `QLPreviewReply(fileURL:contentType:)` API in PLAN v0 does **not exist** in macOS 26.4 SDK — view-based is the only option for video.
 4. Optionally (v2) renders a custom info overlay: filename, duration, codec, GPS coords from EXIF, timecode, dual-fisheye visualization.
 
 Distribution: single `Insta360QuickLook.app` dragged to `/Applications` (or `~/Library/Application Support/Insta360QL/`). User enables in *System Settings → General → Login Items & Extensions → Quick Look* (one-time).
@@ -232,31 +243,42 @@ class ThumbnailProvider: QLThumbnailProvider {
 }
 ```
 
-### `src/Preview.swift`
+### `src/PreviewViewController.swift`
 
-```swift
-import QuickLookUI
-import Cocoa
+> Original PLAN had a `QLPreviewProvider` returning `QLPreviewReply(fileURL:contentType:)`. That initializer **does not exist** in macOS 26.4 SDK, and even if we used `QLPreviewReply(fileURL:)` it would route the original `.insv` path back into AVFoundation and hit the same -11828 wall. View-based is the right path.
 
-class PreviewProvider: QLPreviewProvider, QLPreviewingController {
-    func providePreview(
-        for request: QLFilePreviewRequest,
-        completionHandler handler: @escaping (QLPreviewReply?, Error?) -> Void
-    ) {
-        let url = request.fileURL
-        let ext = url.pathExtension.lowercased()
+See `experiments/03-preview-appex/src/PreviewViewController.swift` for the
+verified-working implementation. Key points:
 
-        let contentType: UTType =
-            ext == "insp" ? .jpeg :
-            (ext == "insv" || ext == "lrv") ? .mpeg4Movie :
-            .data
+- Bare `NSView` in `loadView()` — no fixed frame, no autoresizing mask, no
+  intrinsic constraints. QL panel sizes us via its own constraints.
+- Sub `AVPlayerView` added with `translatesAutoresizingMaskIntoConstraints
+  = false` and explicit anchor constraints to the parent. (Mixing the
+  player view's intrinsic constraints with autoresizingMask crashes
+  NSISEngine on resize — see findings gotcha 9.)
+- Substitute `LRV_*.lrv` proxy if present (see "LRV proxy substitution").
+- Hardlink the resolved source to `<tmp>/<uuid>.mp4`, store the path as
+  a property, delete in `viewWillDisappear` *and* `deinit`.
+- `viewWillDisappear` mutes audio aggressively:
+  ```swift
+  player?.volume = 0
+  player?.pause()
+  player?.replaceCurrentItem(with: nil)
+  playerView?.player = nil
+  ```
+  Without this the audio buffer plays for ~500ms past panel close. Even
+  with it, ~200ms tail leaks through XPC tear-down — acceptable for v1.
 
-        // Hand the URL straight back — the system's preview UI (AVKit for
-        // movies, image viewer for JPEG) will render it. AVKit playback
-        // doesn't have the same HEVC-pix_fmt restriction as the
-        // thumbnail-generation pipeline, so HEVC plays fine here.
-        let reply = QLPreviewReply(fileURL: url, contentType: contentType)
-        handler(reply, nil)
+### Preview.appex Info.plist (NSExtension keys)
+
+```xml
+NSExtension = {
+    NSExtensionPointIdentifier = com.apple.quicklook.preview
+    NSExtensionPrincipalClass  = $(PRODUCT_MODULE_NAME).PreviewViewController
+    NSExtensionAttributes = {
+        QLSupportedContentTypes = [com.insta360.insv, com.insta360.insp]
+        # Do NOT set QLIsDataBasedPreview — view-based is implied by
+        # principal class being NSViewController + QLPreviewingController.
     }
 }
 ```
@@ -264,6 +286,60 @@ class PreviewProvider: QLPreviewProvider, QLPreviewingController {
 ## Build
 
 No Xcode project — direct `swiftc` from CLI. SDK from Xcode CLT (`xcrun --sdk macosx --show-sdk-path`).
+
+### LRV proxy substitution (key UX win)
+
+Insta360 cameras write a paired low-res proxy alongside each `.insv`:
+`VID_<ts>_<sensorA>_<idx>.insv` ↔ `LRV_<ts>_<sensorB>_<idx>.lrv`. The proxy
+is **already stitched dual-fisheye**, **H.264** instead of HEVC, and 5–10×
+smaller. For Quick Look it's the better source on every axis:
+
+- AVPlayer cold-start in milliseconds vs seconds for raw HEVC.
+- Both fisheye lenses visible simultaneously instead of just one.
+- No HEVC decode pressure on integrated GPU.
+- Tiny memory footprint inside the extension's strict sandbox limit (~1.3 GB).
+
+Substitution is one `fileExists` probe on the predicted sibling name (try
+sensor index `01` first, fall back to `02`, then `00`). Apply this in both
+Thumbnail and Preview extensions. Fall through to the `.insv` itself if no
+LRV is present (e.g. user copied one file without its proxy).
+
+### Required entitlements
+
+Both extensions need:
+
+```xml
+<key>com.apple.security.app-sandbox</key>                                   <true/>
+<key>com.apple.security.files.user-selected.read-only</key>                 <true/>
+<key>com.apple.security.temporary-exception.files.absolute-path.read-only</key>
+<array>
+    <string>/</string>
+</array>
+```
+
+The temporary-exception is what unlocks LRV-proxy lookup (sandbox extension
+can only see the file QuickLook handed it; siblings are invisible without
+this). QLMarkdown uses the same entitlement. For ad-hoc personal builds it's
+fine; for App Store distribution it would need App Review justification.
+
+### Tahoe (26) gotchas — required for the appex to even start
+
+These were discovered the hard way (see `experiments/findings.md` for the
+full story including stack traces):
+
+1. **No `main.swift`, no top-level statements.** swiftc with any top-level
+   code produces a Swift `main` symbol; ExtensionFoundation's bootstrap on
+   Tahoe ends up calling that `main` recursively until SIGSEGV at depth ~9000.
+2. **Force linker entry to `_NSExtensionMain`** via
+   `-Xlinker -e -Xlinker _NSExtensionMain`. This bypasses Swift's main and
+   hands control directly to the system extension bootstrap.
+3. **`NSExtensionPrincipalClass` needs the module prefix** for Swift:
+   `Module.ClassName`, e.g. `Thumbnail.ThumbnailProvider`. Mirror QLMarkdown.
+4. **Add `-application-extension`** to swiftc to silence warnings about
+   unavailable APIs in extension contexts.
+5. **`pluginkit -a <appex>`** is required after install to register the
+   extension under its NSExtensionPointIdentifier. `lsregister -f` alone
+   leaves the extension invisible to ThumbnailsAgent / quicklookd.
 
 ### `build.sh`
 
@@ -290,11 +366,15 @@ cp src/HostInfo.plist "$APP/Contents/Info.plist"
 APPEX="$APP/Contents/PlugIns/Thumbnail.appex"
 mkdir -p "$APPEX/Contents/MacOS"
 xcrun -sdk macosx swiftc \
+    -module-name Thumbnail \
+    -application-extension \
     -framework QuickLookThumbnailing \
     -framework AVFoundation \
     -framework AppKit \
+    -framework Foundation \
     -emit-executable \
-    src/Thumbnail.swift \
+    -Xlinker -e -Xlinker _NSExtensionMain \
+    src/ThumbnailProvider.swift \
     -o "$APPEX/Contents/MacOS/Thumbnail"
 cp src/ThumbnailInfo.plist "$APPEX/Contents/Info.plist"
 
@@ -302,10 +382,15 @@ cp src/ThumbnailInfo.plist "$APPEX/Contents/Info.plist"
 APPEX="$APP/Contents/PlugIns/Preview.appex"
 mkdir -p "$APPEX/Contents/MacOS"
 xcrun -sdk macosx swiftc \
+    -module-name Preview \
+    -application-extension \
     -framework QuickLookUI \
-    -framework Cocoa \
+    -framework AVKit \
+    -framework AppKit \
+    -framework Foundation \
     -emit-executable \
-    src/Preview.swift \
+    -Xlinker -e -Xlinker _NSExtensionMain \
+    src/PreviewViewController.swift \
     -o "$APPEX/Contents/MacOS/Preview"
 cp src/PreviewInfo.plist "$APPEX/Contents/Info.plist"
 
@@ -347,14 +432,23 @@ cp -R "$APP" "$DEST/"
 
 "$LSREG" -f "$DEST/$APP"
 
+# Critical on Tahoe: register each appex against its extension point.
+# Without this, lsregister sees the host but ThumbnailsAgent / quicklookd
+# never discover the appex.
+for ext in "$DEST/$APP/Contents/PlugIns/"*.appex; do
+    pluginkit -a "$ext"
+done
+
 # Reset QL caches so it picks up the new extension
 qlmanage -r
 qlmanage -r cache
+killall -9 com.apple.quicklook.ThumbnailsAgent 2>/dev/null || true
+killall Finder 2>/dev/null || true
 
 # Verify the extension is discoverable
 echo
 echo "Discovered extensions for our UTIs:"
-pluginkit -mAvvv | grep -B2 -A1 'com\.faeton\.insta360quicklook' | head -20
+pluginkit -mAvvv | grep -B2 -A4 'com\.faeton\.insta360quicklook' | head -30
 
 echo
 echo "Next: open System Settings → General → Login Items & Extensions →"
@@ -398,13 +492,25 @@ Plus a manual test: Finder Space-press on each example file. CLI `qlmanage -t` i
 
 ## Validation criteria
 
-- [ ] CLI thumbnail (`qlmanage -t`) succeeds for `.insv` (H.264), `.insv` (HEVC), `.lrv`, `.insp`.
-- [ ] Finder Space-press shows preview window for all 4 cases.
-- [ ] Finder icon view shows thumbnails for all 4 cases.
-- [ ] HEVC `.insv` files > 2 GB preview correctly (the original failing case).
-- [ ] No regression on existing working files (H.264, JPEG).
-- [ ] Insta360 Studio still opens `.insv` on double-click (we don't claim to be the default app — `LSHandlerRank = None`).
-- [ ] Spotlight `mdls` reports `kMDItemContentType = com.insta360.{insv|insp}` after our extension installs.
+Thumbnail (proven in exp 02):
+- [x] CLI thumbnail (`qlmanage -t`) succeeds for HEVC `.insv` and copies. Already worked even before this project.
+- [x] Finder Space-press shows real-frame thumbnail for HEVC `.insv` 2.5 GB (the original failing case).
+- [x] Spotlight `mdls` reports `kMDItemContentType = com.insta360.insv`.
+- [ ] Finder icon view (not just Space) shows thumbnails for all 4 cases — to verify after caches warm up.
+- [ ] H.264 `.insv` and `.lrv` thumbnails (regression check vs old stub).
+- [ ] `.insp` (JPEG and HEIC variants) thumbnail.
+
+Preview (proven in exp 03):
+- [x] Space-press on `.insv` opens AVPlayerView with playback controls (timeline, play, scrub).
+- [x] LRV-proxy substitution active when sibling `.lrv` exists — plays dual-fisheye, both lenses.
+- [x] No crash on QL panel resize.
+- [x] Audio mostly stops on panel close (small ~200ms tail remaining).
+- [ ] Verify no leak of hardlinked tmp files after many open/close cycles.
+- [ ] Verify cross-volume case (source on external drive, /tmp on internal).
+
+Cross-cutting:
+- [ ] Insta360 Studio still opens `.insv` on double-click (we use `LSHandlerRank = None`).
+- [ ] Studio's `DocumentIcon1.icns` does not bleed through and override our thumbnail in any Finder view.
 
 ## Roadmap (post-v1)
 
@@ -439,12 +545,21 @@ insta360-quicklook/
 
 ## Risks & open questions
 
-- **Sequoia/Tahoe enable-extension UX**: third-party QL extensions need explicit user toggle in System Settings the first time. Document clearly in README. There's no programmatic way to enable from install script.
-- **Ad-hoc codesign trust**: confirmed earlier that LaunchServices marks ad-hoc-signed UTI declarations as `untrusted` in `lsregister -dump`, but they still resolve correctly in practice (Spotlight + QL both honored them in the stub-app testing). If Apple tightens this in a future update, we'd need Developer ID. Watch for it.
-- **AVAssetImageGenerator in extension sandbox**: the extension process *is* sandboxed (lighter than quicklookd's, but still). Need to verify HEVC decode actually succeeds at runtime, not just compile. If it doesn't, fall back to ffmpeg via XPC service or shipping a static `ffmpeg` binary in `Resources/`.
-- **Insta360 file format edge cases**: `.insv` from older firmware (X1, ONE) may use different brands/codecs than X2/X3/X4. Test on a wider sample if possible.
-- **`.insp` JPEG variants**: a few `.insp` from newer firmware may be HEIC instead of JPEG. Detect via magic bytes, not extension. Trivial to handle.
-- **Stitching**: explicitly out of scope for v1. Dual-fisheye thumbnail is fine — that's also what Insta360 Studio's own QL provider would have shown.
+Resolved (confirmed with experiments):
+- ~~AVAssetImageGenerator in extension sandbox~~ — works, see exp 02. Hardlink trick required because AVFoundation routes by extension.
+- ~~HEVC pix_fmt rejection~~ — not actually a bug; plain AVFoundation decodes all our HEVC samples once given a `.mp4` path.
+- ~~Ad-hoc codesign trust~~ — works for both UTI claim and appex registration. Sandbox container created normally. `signer:none` warning from secinitd is non-fatal.
+- ~~`UTImportedTypeDeclarations` correctness~~ — confirmed via lsregister and mdls.
+
+Open:
+- **AVPlayerView vs custom AVPlayerLayer view** in QL chrome — empirical. AVPlayerView may conflict with QL's toolbar. If so, fall back to AVPlayer + AVPlayerLayer attached to a plain NSView.
+- **Hardlink lifetime in Preview** — must outlive AVPlayer. Store as property, delete in `deinit`. Verify no tmp leak after dismissing QL.
+- **Cross-volume case** — if `/tmp` and source on different volumes, hardlink fails. Symlink works in plain Swift; not yet tested in sandbox. AppSandbox may block following symlinks to user-selected paths.
+- **Insta360 file format edge cases** — `.insv` from older firmware (X1, ONE) may use different brands/codecs. Test on wider sample.
+- **`.insp` HEIC variants** — `CGImageSource` handles JPEG and HEIC transparently, no detection logic needed.
+- **Sequoia/Tahoe enable-extension UX** — third-party QL extensions need explicit user toggle in System Settings → Extensions → Quick Look. Also need toggle off+on after rebuild for ThumbnailsAgent to pick up changes. Document in README.
+- **Insta360 Studio's `DocumentIcon1.icns` claim** — competes with our thumbnail in some Finder views. Empirically our extension wins now; track this.
+- **Stitching** — explicitly out of scope for v1. Dual-fisheye thumbnail is fine.
 
 ## Ownership
 

@@ -1,8 +1,18 @@
 # Insta360 QuickLook
 
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue)](https://www.apple.com/macos/)
+[![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange)](https://swift.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Tahoe verified](https://img.shields.io/badge/macOS%2026.4-verified-success)]()
+
 Native macOS Quick Look extension that fixes broken Finder previews and
 thumbnails for Insta360 files: `.insv`, `.insp`, `.lrv`. Built for
 macOS Sequoia (15) and Tahoe (26).
+
+Press **Space** on a 360 video in Finder. Get a real player with timeline,
+play/pause, scrub — and dual-fisheye footage from both lenses, not a
+generic blue icon. Works on HEVC clips of any size, including the 2 GB+
+files that the underlying macOS bug breaks for everyone.
 
 > **Why this exists:** out of the box, pressing Space on an `.insv` in
 > Finder shows nothing — generic blue INSV icon, no playback. macOS
@@ -124,6 +134,20 @@ insta360-quicklook/
 
 MIT — see [LICENSE](LICENSE).
 
+## Compatibility
+
+| File type | Codec | Status |
+|-----------|-------|--------|
+| `.insv` (HEVC, ≤ 2 GB) | HEVC 4:2:0 | ✅ thumbnail + preview |
+| `.insv` (HEVC, > 2 GB) | HEVC 4:2:0 | ✅ — the original failing case |
+| `.insv` (H.264) | H.264 | ✅ |
+| `.lrv` | H.264 (camera proxy) | ✅ |
+| `.insp` | JPEG | ✅ |
+| `.insp` | HEIC (newer firmware) | ✅ via `CGImageSource`, not separately verified |
+
+Tested on Insta360 X3 / X4 footage (10K and 8K HEVC `.insv` plus the
+camera-written H.264 LRV proxies).
+
 ## Status
 
 v0.1: works on macOS 26.4. Ad-hoc signed (no Developer ID needed for
@@ -135,5 +159,15 @@ Known limitations:
   tear-down latency we can't shorten without abandoning AVPlayerView.
 - Cross-volume hardlink fallback (symlink) is exercised in plain Swift
   but not yet through the sandboxed extension code path.
-- `.insp` HEIC variants (newer firmware) work via `CGImageSource`
-  transparently; not separately tested.
+- macOS Settings → Login Items & Extensions can show phantom entries
+  for previous bundle IDs after multiple installs — they have no
+  effect; safe to ignore. Will fade after a reboot.
+
+## Contributing
+
+This is a small personal tool, but issues and PRs are welcome —
+particularly for footage from cameras the author doesn't own
+(ONE / X1 / X2, professional Insta360 Pro / Titan formats), where the
+file naming and codec brand may differ. See
+[`experiments/findings.md`](experiments/findings.md) before debugging
+anything Quick Look–related: most surprises are documented there.

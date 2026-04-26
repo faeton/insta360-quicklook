@@ -24,9 +24,18 @@ files that the underlying macOS bug breaks for everyone.
 
 ## What you get
 
-- **Thumbnails** in Finder icon view for `.insv`, `.insp`, `.lrv`.
+- **Thumbnails** in Finder icon view for `.insv`, `.insp`, `.lrv`,
+  with a duration · codec pill and a "360°" badge in the corner so
+  Insta360 footage stands out at a glance in mixed folders.
 - **Space-press preview** in Finder — full AVPlayerView with timeline,
-  play/pause, scrub.
+  play/pause, scrub. A HUD bar at the top of the panel shows capture
+  date, time, **timezone**, resolution, codec, duration, and file
+  size.
+- **Capture-time timezone recovery.** Insta360 doesn't write a
+  TZ-aware ISO creation date, but the `mvhd` atom holds the absolute
+  UTC moment while the filename holds the local wall clock. Their
+  delta is the offset — a Tahiti shoot opened on a Berlin laptop
+  still reads `08:45 GMT-10:00`, not the current TZ.
 - **LRV proxy substitution.** When you Space an `.insv`, the extension
   finds the camera-written `LRV_*.lrv` proxy alongside it and uses
   *that* as the playback source: smaller (5–10×), H.264 instead of
@@ -102,9 +111,7 @@ The full empirical writeup — including 10 specific gotchas that bit
 during development (NSExtensionMain recursion on Tahoe, sandbox
 sibling-file invisibility, NSISEngine crashes on AVPlayerView resize,
 audio teardown timing, etc.) — is in
-[`experiments/findings.md`](experiments/findings.md). The original
-plan with the wrong diagnosis is in [`PLAN.md`](PLAN.md), revised
-inline with the truth as experiments revealed it.
+[`experiments/findings.md`](experiments/findings.md).
 
 ## Repo layout
 
@@ -127,7 +134,6 @@ insta360-quicklook/
 │   ├── 01-hardlink-trick.swift    # prove the workaround in plain Swift
 │   ├── 02-min-appex/              # smallest possible Thumbnail extension
 │   └── 03-preview-appex/          # add Preview, then LRV proxy logic
-└── PLAN.md                        # original plan, revised with findings
 ```
 
 ## License

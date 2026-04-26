@@ -46,8 +46,17 @@ files that the underlying macOS bug breaks for everyone.
 
 ## Install
 
-Requirements: macOS 13+ (built and tested on Tahoe 26.4), Xcode command
-line tools (`xcode-select --install`).
+Requirements: macOS 13+ (built and tested on Tahoe 26.4).
+
+### Homebrew (recommended)
+
+```bash
+brew install --cask faeton/tap/insta360-quicklook
+```
+
+### From source
+
+Needs Xcode command line tools (`xcode-select --install`).
 
 ```bash
 git clone https://github.com/faeton/insta360-quicklook.git

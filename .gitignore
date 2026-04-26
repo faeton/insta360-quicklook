@@ -11,3 +11,6 @@ icon/AppIcon.iconset/
 
 # Future production build outputs
 /build/
+
+# Release artifacts (zips uploaded to GitHub Releases)
+/dist/

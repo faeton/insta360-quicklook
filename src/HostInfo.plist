@@ -53,6 +53,29 @@
         </dict>
         <dict>
             <key>UTTypeIdentifier</key>
+            <string>com.dji.osv</string>
+            <key>UTTypeDescription</key>
+            <string>DJI Osmo 360 Panoramic Video</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.mpeg-4</string>
+                <string>public.movie</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>osv</string>
+                    <string>lrf</string>
+                </array>
+                <key>public.mime-type</key>
+                <array>
+                    <string>video/mp4</string>
+                </array>
+            </dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
             <string>com.insta360.insp</string>
             <key>UTTypeDescription</key>
             <string>Insta360 Panoramic Image</string>
@@ -84,6 +107,18 @@
             <key>LSItemContentTypes</key>
             <array>
                 <string>com.insta360.insv</string>
+            </array>
+            <key>LSHandlerRank</key>
+            <string>None</string>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>DJI Osmo 360 Panoramic Video</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.dji.osv</string>
             </array>
             <key>LSHandlerRank</key>
             <string>None</string>

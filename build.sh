@@ -66,6 +66,11 @@ build_appex() {
 
     cp "$plist" "$APPEX/Contents/Info.plist"
 
+    # iCloud-synced checkouts (Desktop & Documents in iCloud) get a
+    # com.apple.FinderInfo xattr stamped on fresh directories, which codesign
+    # rejects as "resource fork, Finder information, or similar detritus".
+    xattr -cr "$APPEX"
+
     codesign --force --sign - \
         --entitlements "$entitlements" \
         --options runtime \
@@ -79,6 +84,7 @@ build_appex Thumbnail Thumbnail src/ThumbnailProvider.swift src/ThumbnailInfo.pl
 build_appex Preview Preview src/PreviewViewController.swift src/PreviewInfo.plist src/Preview.entitlements \
     QuickLookUI AVKit AppKit
 
+xattr -cr "$APP"
 codesign --force --sign - "$APP"
 codesign --verify --deep --strict "$APP" && echo "✓ codesign verified"
 

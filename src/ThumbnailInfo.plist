@@ -30,6 +30,12 @@
             <array>
                 <string>com.insta360.insv</string>
                 <string>com.insta360.insp</string>
+                <string>com.dji.osv</string>
+                <!-- DJI Studio exports .osv/.lrf under its own UTI and wins
+                     the binding over our imported one. The claim survives as
+                     a stale LaunchServices record even after Studio is
+                     uninstalled, so support both identifiers. -->
+                <string>com.light.studio.thumbnail.osv</string>
             </array>
             <key>QLThumbnailMinimumDimension</key>
             <integer>32</integer>

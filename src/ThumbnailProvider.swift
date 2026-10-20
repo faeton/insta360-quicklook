@@ -1,5 +1,5 @@
 // Thumbnail.appex principal class — generates Finder/QL thumbnails for
-// .insv / .lrv (video) and .insp (image) by:
+// .insv / .lrv / .osv / .lrf (video) and .insp (image) by:
 //
 //   - .insp  → CGImageSourceCreateThumbnailAtIndex (handles JPEG and HEIC)
 //   - .insv  → if a paired LRV proxy exists nearby, prefer it (smaller,
@@ -7,6 +7,13 @@
 //              Hardlink the chosen source to <tmp>/<uuid>.mp4 so AVFoundation
 //              opens it (it routes by extension, not UTI).
 //   - .lrv   → same hardlink trick.
+//   - .osv   → DJI Osmo 360. Same AVFoundation extension-routing bug, same
+//              hardlink trick. Carries two 3840×3840 HEVC tracks, one per
+//              lens, so the generator yields a single lens. The paired
+//              .lrf would show both, but the sandbox won't let us read it
+//              — see ProxyResolver.
+//   - .lrf   → DJI's proxy: one 2048×1024 H.264 track, both lenses
+//              side-by-side. Same hardlink trick.
 //
 // See PLAN.md and experiments/findings.md for why each detail is needed.
 import QuickLookThumbnailing
@@ -49,7 +56,10 @@ final class ThumbnailProvider: QLThumbnailProvider {
     }
 
     private func handleVideo(url: URL, size: CGSize, handler: @escaping (QLThumbnailReply?, Error?) -> Void) {
-        let source = ProxyResolver.lrvProxy(for: url) ?? url
+        let source = ProxyResolver.proxy(for: url) ?? url
+        if source != url {
+            log.info("using proxy \(source.lastPathComponent, privacy: .public)")
+        }
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(UUID().uuidString).mp4")
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -59,14 +69,16 @@ final class ThumbnailProvider: QLThumbnailProvider {
             do {
                 try FileManager.default.createSymbolicLink(at: tmp, withDestinationURL: source)
             } catch {
+                log.error("link failed: \(error.localizedDescription, privacy: .public)")
                 handler(nil, error); return
             }
         }
         guard let decoded = decode(url: tmp) else {
+            log.error("decode failed for \(source.lastPathComponent, privacy: .public)")
             handler(nil, NSError(domain: "Insta360QuickLook", code: 3)); return
         }
         let ext = url.pathExtension.lowercased()
-        let badge = (ext == "insv" || ext == "lrv")
+        let badge = ["insv", "lrv", "osv", "lrf"].contains(ext)
         handler(makeReply(cg: decoded.image, size: size, overlay: decoded.info, badge: badge), nil)
     }
 

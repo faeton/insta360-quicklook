@@ -45,9 +45,9 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
             return
         }
 
-        let source = ProxyResolver.lrvProxy(for: url) ?? url
+        let source = ProxyResolver.proxy(for: url) ?? url
         if source != url {
-            log.info("using LRV proxy \(source.lastPathComponent, privacy: .public)")
+            log.info("using proxy \(source.lastPathComponent, privacy: .public)")
         }
 
         do {
@@ -188,9 +188,9 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         view.layer?.addSublayer(imageLayer)
     }
 
-    // Insta360 writes the capture time twice:
+    // Both Insta360 and DJI write the capture time twice:
     //   - QuickTime mvhd creation_time (UTC, per ISO 14496-12 spec)
-    //   - Filename VID_YYYYMMDD_HHMMSS_* (local wall clock, no TZ)
+    //   - Filename wall clock, local, no TZ (see filenameNaiveDate)
     // Their difference IS the capture-time TZ offset. Recover it.
     nonisolated private static func captureStamp(originalURL: URL, asset: AVURLAsset) -> String? {
         let mvhd = mvhdUTCDate(asset: asset)
@@ -353,17 +353,27 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         return nil
     }
 
-    // Parses VID_YYYYMMDD_HHMMSS_* digits as if they were UTC. Used as one
-    // half of the offset calculation; absolute moment is meaningless until
-    // combined with mvhd UTC.
+    // Parses the filename's wall-clock digits as if they were UTC. Used as
+    // one half of the offset calculation; absolute moment is meaningless
+    // until combined with mvhd UTC. Two layouts in the wild:
+    //   Insta360  VID_YYYYMMDD_HHMMSS_…   date and time in separate fields
+    //   DJI       CAM_YYYYMMDDHHMMSS_…    one 14-digit field
     nonisolated private static func filenameNaiveDate(originalURL: URL) -> Date? {
         let parts = originalURL.deletingPathExtension().lastPathComponent.split(separator: "_")
-        guard parts.count >= 3, parts[1].count == 8, parts[2].count == 6,
-              Int(parts[1]) != nil, Int(parts[2]) != nil else { return nil }
+        guard parts.count >= 2 else { return nil }
+        let digits: String
+        if parts[1].count == 14, Int(parts[1]) != nil {
+            digits = String(parts[1])
+        } else if parts.count >= 3, parts[1].count == 8, parts[2].count == 6,
+                  Int(parts[1]) != nil, Int(parts[2]) != nil {
+            digits = String(parts[1] + parts[2])
+        } else {
+            return nil
+        }
         let p = DateFormatter()
-        p.dateFormat = "yyyyMMdd_HHmmss"
+        p.dateFormat = "yyyyMMddHHmmss"
         p.timeZone = TimeZone(identifier: "UTC")
-        return p.date(from: "\(parts[1])_\(parts[2])")
+        return p.date(from: digits)
     }
 
     // Take a Date whose hh:mm:ss components in UTC are X, and produce a Date

@@ -30,6 +30,10 @@
             <array>
                 <string>com.insta360.insv</string>
                 <string>com.insta360.insp</string>
+                <string>com.dji.osv</string>
+                <!-- See ThumbnailInfo.plist: DJI Studio's exported UTI wins
+                     the .osv/.lrf binding, even as a stale LS record. -->
+                <string>com.light.studio.thumbnail.osv</string>
             </array>
             <key>QLSupportsSearchableItems</key>
             <false/>

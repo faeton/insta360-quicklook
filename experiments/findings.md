@@ -31,8 +31,15 @@ at the hardlink. AVAsset opens it instantly, decodes the first I-frame in
 - H.264 `.lrv`
 
 Hardlink works because all test files live on the same volume as `/tmp`. For
-cross-volume cases fall back to symlink (also tested via plain Swift; not
-yet tested in sandbox).
+cross-volume cases fall back to symlink.
+
+**Update (macOS 26.6):** inside the extension sandbox the hardlink *always*
+fails — `EPERM` on the extension's own `temporaryDirectory`, not `EXDEV`,
+and on internal volumes too. The symlink fallback therefore carries every
+request, and it works: the sandbox token issued for the file Quick Look
+handed us covers the path the symlink resolves to. Verified on a 12 GB
+`.osv` on an external volume (0.09 s). See gotcha 11 for the case this
+does *not* cover.
 
 ## Build pitfalls discovered (Tahoe-specific)
 
@@ -144,6 +151,7 @@ End-to-end Quick Look stack proven on Tahoe (macOS 26.4.1):
   If found, it's used as the AVPlayer source — much smaller (5–10×), H.264
   instead of HEVC, and pre-stitched dual-fisheye showing both cameras.
   Falls back to the .insv itself if no LRV is present.
+  **No longer reachable on macOS 26.6 — see gotcha 11.**
 
 ## More gotchas discovered in exp 03
 
@@ -165,6 +173,8 @@ user-selected.
 This is a temporary-exception entitlement, but ad-hoc-signed extensions
 *can* use it (verified). It would normally need App Review for App Store
 distribution.
+
+**Superseded on macOS 26.6 — see gotcha 11.**
 
 ### 9. AVPlayerView + autoresizingMask = NSISEngine crash
 
@@ -194,11 +204,61 @@ for v1; if more aggressive teardown is needed, would have to abandon
 AVPlayerView for a fully custom player+layer where we control the
 AVAudioOutput stack directly.
 
+## Gotchas discovered adding DJI Osmo 360 (macOS 26.6.2)
+
+### 11. The sibling-file entitlement no longer works
+
+Gotcha 8's fix has stopped working. With
+`com.apple.security.temporary-exception.files.absolute-path.read-only`
+set to `["/"]`, a sibling proxy now reports `fileExists == true` but
+`isReadableFile == false`. Adding `/Volumes/` to the array changes
+nothing, and the behaviour is identical on internal and external volumes,
+so it is not a removable-media TCC issue — the entitlement simply no
+longer covers files Quick Look didn't hand us.
+
+Consequence: proxy substitution is dead on this OS for both brands.
+Worse, it is dead in a way that *breaks* working thumbnails — swapping a
+decodable source (the file we were given) for an undecodable one (a
+sibling we cannot read) makes the extension return nothing at all, where
+doing nothing would have worked.
+
+`ProxyResolver` therefore probes with `isReadableFile`, not `fileExists`,
+and treats "not readable" as "no proxy" so callers fall back to the
+original file.
+
+### 12. DJI Studio already claims `.osv` / `.lrf`
+
+`.osv` and `.lrf` do not resolve to a newly imported UTI. They resolve to
+`com.light.studio.thumbnail.osv`, exported by
+`DJI Studio.app/Contents/PlugIns/DJIStudioQuickLookHost.app`. Exported
+beats imported, so our declaration loses.
+
+The claim also survives as a stale LaunchServices record after DJI Studio
+is uninstalled — verified on a machine where the app no longer exists but
+the binding does. Listing both UTIs in `QLSupportedContentTypes` covers
+machines with and without Studio.
+
+Symptom: `QLThumbnailGenerator` returns `.icon` instead of `.thumbnail`
+in ~0.01 s and the extension log stays empty — it is never invoked.
+
+### 13. `pluginkit -e use` enables extensions without System Settings
+
+The install instructions say the Quick Look toggle must be flipped by
+hand. It doesn't:
+
+```bash
+pluginkit -e use -i com.faeton.insta360quicklook.thumbnail
+pluginkit -e use -i com.faeton.insta360quicklook.preview
+pluginkit -m -A -v | grep insta360    # "+" in column 1 means enabled
+```
+
+Needed again after every reinstall, since the appex gets a new UUID.
+
 ## Open risks for v2 / production
 
-- **Cross-volume case** — if `/tmp` and source on different volumes
-  (e.g. external drive), hardlink fails. Symlink fallback works in plain
-  Swift; not yet exercised through the extension sandbox path.
+- **Proxy substitution is inert on macOS 26.6** — see gotcha 11. The
+  feature degrades silently now, but it means `.insv` shows one lens and
+  `.osv` shows one of its two tracks.
 - **HEIC `.insp`** — `CGImageSource` handles JPEG and HEIC transparently,
   no extra logic needed.
 - **Insta360 Studio's `DocumentIcon1.icns` claim** — may compete with

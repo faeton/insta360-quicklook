@@ -15,13 +15,10 @@ generic blue icon. Works on HEVC clips of any size, including the 2 GB+
 files that the underlying macOS bug breaks for everyone.
 
 > [!WARNING]
-> **v0.1 conflicts with Insta360 Studio's own Quick Look plugin.** It
-> declares its own file types for `.insv`, `.insp` and `.lrv`, and in
-> testing with Studio 6.0.7 that stopped Studio's preview from launching.
-> **If you have Studio 5.6.1 or later, use its plugin and don't install
-> this.** The Homebrew cask is disabled for this reason. If v0.1 is already
-> installed, see [Uninstall](#uninstall). A future release is planned to
-> coexist with Studio and to serve Macs without it.
+> **v0.1 conflicts with Insta360 Studio's own Quick Look plugin.** It declares
+> its own file types, which stopped Studio's preview from launching in testing,
+> so its Homebrew cask is disabled. If v0.1 is installed, see
+> [Uninstall](#uninstall). **v0.2, now in beta, fixes this.**
 
 > **Why this exists:** without a Quick Look handler, pressing Space on an
 > `.insv` in Finder shows nothing — generic blue INSV icon, no playback.
@@ -31,6 +28,15 @@ files that the underlying macOS bug breaks for everyone.
 
 ## What you get
 
+**With Insta360 Studio installed:** you don't need this for previews, because Studio's
+plugin keeps the Space preview. Thumbnails may come from either plugin, and macOS
+decides which.
+
+**Without Studio:**
+
+- **Instant thumbnails** from the stitched, level panorama the camera stores in each
+  file, with no video decoding. Finder's small icons show the centre square.
+- **Draggable panorama on Space**, with a button to play the video.
 - **Thumbnails** in Finder icon view for `.insv`, `.insp`, `.lrv`,
   with a duration · codec pill and a "360°" badge in the corner so
   Insta360 footage stands out at a glance in mixed folders.
@@ -53,11 +59,15 @@ files that the underlying macOS bug breaks for everyone.
 
 ## Install
 
-Requirements: macOS 13+ (built and tested on Tahoe 26.4).
+Requirements: macOS 13+. Tested on macOS 27.2 with Insta360 X5 footage.
 
-Read the [warning above](#insta360-quicklook) first: install v0.1 only on
-a Mac without Insta360 Studio. The Homebrew cask is disabled and now refuses
-to install.
+### Beta
+
+1. Download the zip from the latest
+   [pre-release](https://github.com/faeton/insta360-quicklook/releases). It's
+   notarized by Apple.
+2. Drag **Insta360QuickLook.app** into Applications.
+3. Open it once. This registers the extensions and shows their status.
 
 ### From source
 
@@ -69,16 +79,11 @@ cd insta360-quicklook
 ./build.sh && ./install.sh
 ```
 
-Then enable the extension once:
-
-> **System Settings → General → Login Items & Extensions → Quick Look**
-> → toggle ON **Insta360 QuickLook**.
 
 ## Verify
 
 ```bash
 qlmanage -t -s 256 -o /tmp /path/to/some.insv      # CLI thumbnail check
-mdls -name kMDItemContentType /path/to/some.insv   # should report com.insta360.insv
 ```
 
 In Finder: open the folder, wait for thumbnails to render, press Space
@@ -129,11 +134,10 @@ The actual macOS bug: **AVFoundation routes by file extension**, not UTI.
 
 This project's fix has two parts:
 
-1. **Register UTIs and Quick Look extensions** (`UTImportedTypeDeclarations`,
-   `Thumbnail.appex` + `Preview.appex` with `QLSupportedContentTypes` for
-   `com.insta360.insv` / `com.insta360.insp`). LaunchServices then knows
-   to ask *us* for previews/thumbnails, instead of falling through to
-   the default AVFoundation path that rejects `.insv`.
+1. **Register Quick Look extensions without declaring file types.** Both extensions
+   claim the system's `dyn.*` identifiers for these extensions, as vendor plugins do.
+   Importing a type would move the files off `dyn.*` for the whole Mac and stop
+   those plugins from matching, which is what v0.1 did.
 
 2. **Hardlink the file to `<tmp>/<uuid>.mp4`** before handing it to
    AVFoundation — that's how we sidestep the extension-routing bug
@@ -158,7 +162,10 @@ insta360-quicklook/
 ├── build.sh                       # swiftc + iconutil + codesign, ~5s
 ├── install.sh                     # lsregister + pluginkit + cache reset
 ├── src/
-│   ├── HostInfo.plist             # UTIs, doc types, app metadata
+│   ├── HostApp.swift              # registers extensions, shows status
+│   ├── HostInfo.plist             # app metadata
+│   ├── TrailerReader.swift        # panorama and capture time from the trailer
+│   ├── PanoramaView.swift         # Metal draggable panorama
 │   ├── Thumbnail{Info,.entitlements,Provider.swift}
 │   ├── Preview{Info,.entitlements,ViewController.swift}
 │   └── ProxyResolver.swift        # LRV-pair lookup, shared by both
@@ -188,20 +195,27 @@ MIT — see [LICENSE](LICENSE).
 | `.lrv` | H.264 (camera proxy) | ✅ |
 | `.insp` | JPEG | ✅ |
 | `.insp` | HEIC (newer firmware) | ✅ via `CGImageSource`, not separately verified |
+| `.osv` / `.lrf` | HEVC / H.264 (DJI Osmo 360) | Beta: reported working by a contributor before the type rework, not yet re-tested |
 
 Tested on Insta360 X3 / X4 footage (10K and 8K HEVC `.insv` plus the
 camera-written H.264 LRV proxies).
 
 ## Status
 
-v0.1: works on macOS 26.4. Ad-hoc signed, not notarized, so Gatekeeper
-rejects it. The Homebrew cask is disabled because v0.1 conflicts with Insta360
-Studio's plugin.
+v0.2 is in beta: notarized, and tested with Insta360 X5 footage on macOS 27.2, beside
+Studio 6.0.7. DJI Osmo 360 support (`.osv`, `.lrf`) came from a contributor and has only
+been checked here with stand-in files, not real DJI footage. It shows a flat preview, so
+`.osv` may show a single lens. Other Insta360 cameras may have no panorama, and then
+fall back to decoding a frame.
+
+The file format this reads is undocumented, so a firmware update could change it.
 
 Known limitations:
 
-- Conflicts with Insta360 Studio's Quick Look plugin (see the warning at
-  the top).
+- Thumbnails can't be made to yield to Studio's plugin, because macOS doesn't
+  honour the extension switch for them.
+- The capture timezone comes from the camera's clock setting, so a camera set to
+  the wrong zone shows that zone.
 - LRV proxy substitution may not work on current macOS: a contributor
   reports the sandbox refusing to read sibling files on 26.6
   ([#1](https://github.com/faeton/insta360-quicklook/pull/1)). Not yet

@@ -1,82 +1,83 @@
 #!/bin/bash
-# Build a release artifact: clean build + zip + SHA256 + Cask snippet.
-# Doesn't push or tag — just produces dist/Insta360QuickLook-vX.Y.Z.zip
-# and prints the cask formula for you to paste into homebrew-faeton/tap.
+# Build, sign, notarize and staple a release, then zip it and print the cask.
+# Doesn't tag or publish, so nothing here is public.
 #
-# Workflow:
-#   1. ./release.sh                  → builds dist/*.zip, prints cask
-#   2. git tag vX.Y.Z && git push --tags
-#   3. gh release create vX.Y.Z dist/Insta360QuickLook-vX.Y.Z.zip
-#   4. paste the printed cask into homebrew-tap/Casks/insta360-quicklook.rb
+#   SIGN_ID          Developer ID Application identity (found automatically if unset)
+#   NOTARY_PROFILE   notarytool keychain profile
+#   TAG              release tag, such as v0.2.0-beta.1 (default: v<plist version>)
 set -euo pipefail
 cd "$(dirname "$0")"
 
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' src/HostInfo.plist)
-TAG="v$VERSION"
+TAG="${TAG:-v$VERSION}"
 APP=Insta360QuickLook.app
-ZIP="Insta360QuickLook-$TAG.zip"
+ZIP="dist/Insta360QuickLook-$TAG.zip"
+NOTARY_PROFILE="${NOTARY_PROFILE:-porter-notarization}"
+LSREG=/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister
 
-echo "+ building $APP (version $VERSION)"
+if [[ -z "${SIGN_ID:-}" ]]; then
+    SIGN_ID=$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application:.*\)".*/\1/p' | head -1)
+fi
+if [[ -z "$SIGN_ID" ]]; then
+    echo "✗ no Developer ID Application identity found" >&2
+    exit 1
+fi
+export SIGN_ID
+
+# The built app is registered as soon as it exists. Don't leave a second copy around.
+trap '"$LSREG" -u "$PWD/$APP" 2>/dev/null || true; rm -rf "$APP"' EXIT
+
+tests/run.sh > /dev/null
+echo "+ tests passed"
+
+echo "+ building $APP ($TAG), signed by $SIGN_ID"
 ./build.sh > /dev/null
 
 mkdir -p dist
-rm -f "dist/$ZIP"
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
 
-echo "+ packaging dist/$ZIP"
-ditto -c -k --keepParent "$APP" "dist/$ZIP"
+echo "+ notarizing"
+xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+xcrun stapler staple "$APP"
+xcrun stapler validate "$APP"
 
-SHA=$(shasum -a 256 "dist/$ZIP" | awk '{print $1}')
-SIZE=$(ls -lh "dist/$ZIP" | awk '{print $5}')
+# Re-zip so the stapled ticket is in what people download.
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+spctl --assess --type execute --verbose=2 "$APP"
 
-echo "+ done: dist/$ZIP ($SIZE)"
+SHA=$(shasum -a 256 "$ZIP" | awk '{print $1}')
+echo "+ done: $ZIP ($(du -h "$ZIP" | cut -f1))"
 echo "+ sha256: $SHA"
 
 cat <<EOF
 
 ──────────────────────────────────────────────────────────────────────
-Next steps:
+To publish:
   git tag $TAG && git push origin $TAG
-  gh release create $TAG dist/$ZIP --title "$TAG" --generate-notes
+  gh release create $TAG $ZIP --title "$TAG"   # add --prerelease for a test build
 
-Then paste this into homebrew-faeton/tap/Casks/insta360-quicklook.rb:
+Cask for the tap (installs only once the disable! line is gone):
 ──────────────────────────────────────────────────────────────────────
 
 cask "insta360-quicklook" do
-  version "$VERSION"
+  version "${TAG#v}"
   sha256 "$SHA"
 
   url "https://github.com/faeton/insta360-quicklook/releases/download/v#{version}/Insta360QuickLook-v#{version}.zip"
   name "Insta360 QuickLook"
-  desc "Native Quick Look thumbnails and previews for Insta360 .insv/.insp/.lrv"
+  desc "Quick Look thumbnails and previews for Insta360 and DJI 360 video"
   homepage "https://github.com/faeton/insta360-quicklook"
 
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   app "Insta360QuickLook.app"
 
-  postflight do
-    lsreg = "/System/Library/Frameworks/CoreServices.framework/Versions/A/" \\
-            "Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
-    installed = "#{appdir}/Insta360QuickLook.app"
-    system_command lsreg, args: ["-f", installed]
-    Dir["#{installed}/Contents/PlugIns/*.appex"].each do |ext|
-      system_command "/usr/bin/pluginkit", args: ["-a", ext]
-    end
-    system_command "/usr/bin/qlmanage", args: ["-r"]
-    system_command "/usr/bin/qlmanage", args: ["-r", "cache"]
-  end
-
   uninstall quit: "com.faeton.insta360quicklook"
 
-  zap trash: [
-    "~/Library/Application Support/Insta360QL",
-    "~/Library/Caches/com.faeton.insta360quicklook",
-  ]
+  zap trash: "~/Library/Caches/com.faeton.insta360quicklook"
 
-  caveats <<~EOS
-    One-time setup required:
-      System Settings → General → Login Items & Extensions → Quick Look
-      Toggle ON "Insta360 QuickLook" (Thumbnail and Preview both appear).
-  EOS
+  caveats "Open Insta360 QuickLook once to register its Quick Look extensions."
 end
 EOF

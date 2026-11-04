@@ -1,5 +1,8 @@
 // Preview.appex principal class — view-based QuickLook previewer.
 //
+// If the file holds the camera's stitched panorama (TrailerReader), it opens as a
+// draggable view, with a button to play the video. Otherwise:
+//
 //   - .insp  → CGImageSource → CALayer with the bitmap.
 //   - .insv  → if paired LRV proxy exists, use it (smaller, dual-fisheye,
 //              both lenses). Otherwise the .insv itself.
@@ -24,6 +27,9 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
     private var playerView: AVPlayerView?
     private var infoBar: NSView?
     private var infoLabel: NSTextField?
+    private var panoramaView: PanoramaView?
+    private var playButton: NSButton?
+    private var videoURL: URL?
 
     override func loadView() {
         // Bare layer-backed container; QL panel sizes us via constraints.
@@ -39,26 +45,84 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         let ext = url.pathExtension.lowercased()
         log.info("preparePreview \(url.lastPathComponent, privacy: .public)")
 
+        // The camera's stitched panorama opens instantly and needs no decode.
+        if let image = TrailerReader.panorama(at: url), let panorama = PanoramaView(image: image) {
+            log.info("panorama \(url.lastPathComponent, privacy: .public)")
+            attachPanorama(panorama, originalURL: url, isVideo: ext != "insp")
+            handler(nil)
+            return
+        }
+
         if ext == "insp" {
             attachImage(url: url)
             handler(nil)
             return
         }
 
-        let source = ProxyResolver.proxy(for: url) ?? url
-        if source != url {
-            log.info("using proxy \(source.lastPathComponent, privacy: .public)")
-        }
-
         do {
-            let h = try Self.makeHardlink(of: source)
-            self.hardlinkURL = h
-            attachPlayer(hardlink: h, originalURL: url)
+            try startVideo(url: url)
             handler(nil)
         } catch {
             log.error("hardlink failed: \(error.localizedDescription, privacy: .public)")
             handler(error)
         }
+    }
+
+    private func startVideo(url: URL) throws {
+        let source = ProxyResolver.proxy(for: url) ?? url
+        if source != url {
+            log.info("using proxy \(source.lastPathComponent, privacy: .public)")
+        }
+        let h = try Self.makeHardlink(of: source)
+        self.hardlinkURL = h
+        attachPlayer(hardlink: h, originalURL: url)
+    }
+
+    private func attachPanorama(_ panorama: PanoramaView, originalURL: URL, isVideo: Bool) {
+        panorama.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(panorama)
+        NSLayoutConstraint.activate([
+            panorama.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            panorama.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            panorama.topAnchor.constraint(equalTo: view.topAnchor),
+            panorama.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        self.panoramaView = panorama
+        guard isVideo else { return }
+
+        self.videoURL = originalURL
+        let play = NSButton(title: "Play Video", target: self, action: #selector(playVideo))
+        play.translatesAutoresizingMaskIntoConstraints = false
+        play.bezelStyle = .rounded
+        view.addSubview(play)
+        NSLayoutConstraint.activate([
+            play.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            play.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -16),
+        ])
+        self.playButton = play
+
+        installInfoBar(text: " ")
+        let label = self.infoLabel
+        Task.detached {
+            guard let link = try? Self.makeHardlink(of: originalURL) else { return }
+            defer { try? FileManager.default.removeItem(at: link) }
+            let text = Self.videoInfoString(originalURL: originalURL, playbackAsset: AVURLAsset(url: link))
+            await MainActor.run { label?.stringValue = text }
+        }
+    }
+
+    @objc private func playVideo() {
+        guard let url = videoURL else { return }
+        do {
+            try startVideo(url: url)
+        } catch {
+            log.error("hardlink failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        panoramaView?.removeFromSuperview()
+        panoramaView = nil
+        playButton?.removeFromSuperview()
+        playButton = nil
     }
 
     private func attachPlayer(hardlink: URL, originalURL: URL) {
@@ -194,7 +258,9 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
     // Their difference IS the capture-time TZ offset. Recover it.
     nonisolated private static func captureStamp(originalURL: URL, asset: AVURLAsset) -> String? {
         let mvhd = mvhdUTCDate(asset: asset)
-        let filename = filenameNaiveDate(originalURL: originalURL)
+        // The camera's own record survives renaming, so it comes before the filename.
+        let filename = TrailerReader.captureWallClock(at: originalURL).flatMap(naiveDate(digits:))
+            ?? filenameNaiveDate(originalURL: originalURL)
 
         if let mvhd, let fnUTC = filename {
             // mvhd is the absolute UTC moment; filename is naive local wall
@@ -211,7 +277,9 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
             // so DateFormatter prints the same hh:mm we read from the name.
             return formatStamp(reinterpretInCurrentTZ(fnUTC), tz: .current, showTZ: false)
         }
-        if let mvhd { return formatStamp(mvhd, tz: .current, showTZ: true) }
+        // The moment is known but the capture timezone isn't. UTC says so honestly,
+        // where the Mac's own timezone would read like the place it was filmed.
+        if let mvhd { return formatStamp(mvhd, tz: TimeZone(identifier: "UTC") ?? .current, showTZ: true) }
         if let attrs = try? FileManager.default.attributesOfItem(atPath: originalURL.path),
            let mtime = attrs[.modificationDate] as? Date {
             return formatStamp(mtime, tz: .current, showTZ: true)
@@ -370,6 +438,10 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         } else {
             return nil
         }
+        return naiveDate(digits: digits)
+    }
+
+    nonisolated private static func naiveDate(digits: String) -> Date? {
         let p = DateFormatter()
         p.dateFormat = "yyyyMMddHHmmss"
         p.timeZone = TimeZone(identifier: "UTC")

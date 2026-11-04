@@ -15,6 +15,9 @@
 //   - 40-byte header (u32 1, u32 record length, ..., u32 width at 16, u32 height
 //     at 20) followed by NV12 pixels
 // ExifTool also documents other forms of this record, which return nil here.
+//
+// Record 0x101 is a protobuf message. Field 7 holds the camera's local wall clock
+// as an integer reading YYYYMMDDHHMMSS, which survives the file being renamed.
 import Foundation
 import CoreGraphics
 import ImageIO
@@ -23,6 +26,9 @@ enum TrailerReader {
     private static let magic = Data("8db42d694ccc418790edff439fe026bf".utf8)
     private static let tailLength = 78
     private static let panoramaRecord = 0x200
+    private static let infoRecord = 0x101
+    private static let wallClockField = 7
+    private static let maxInfoBytes = 1 << 20
     private static let maxRecords = 64
     private static let maxPanoramaBytes = 64 << 20
     private static let maxDimension = 8192
@@ -30,8 +36,48 @@ enum TrailerReader {
     static func panorama(at url: URL) -> CGImage? {
         guard let file = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? file.close() }
-        guard let payload = panoramaPayload(in: file) else { return nil }
+        guard let payload = record(panoramaRecord, maxBytes: maxPanoramaBytes, in: file) else { return nil }
         return decode(payload)
+    }
+
+    /// The camera's local capture time as YYYYMMDDHHMMSS, with no timezone.
+    static func captureWallClock(at url: URL) -> String? {
+        guard let file = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? file.close() }
+        guard let payload = record(infoRecord, maxBytes: maxInfoBytes, in: file) else { return nil }
+        return wallClock(inMessage: [UInt8](payload))
+    }
+
+    private static func wallClock(inMessage bytes: [UInt8]) -> String? {
+        var i = 0
+        func varint() -> Int? {
+            var value = 0, shift = 0
+            while i < bytes.count, shift < 63 {
+                let b = bytes[i]
+                i += 1
+                value |= Int(b & 0x7F) << shift
+                if b & 0x80 == 0 { return value }
+                shift += 7
+            }
+            return nil
+        }
+        while i < bytes.count {
+            guard let tag = varint() else { return nil }
+            switch tag & 7 {
+            case 0:
+                guard let value = varint() else { return nil }
+                if tag >> 3 == wallClockField {
+                    return (10_000_000_000_000...99_999_999_999_999).contains(value) ? String(value) : nil
+                }
+            case 1: i += 8
+            case 5: i += 4
+            case 2:
+                guard let n = varint(), n >= 0, n <= bytes.count - i else { return nil }
+                i += n
+            default: return nil
+            }
+        }
+        return nil
     }
 
     /// How to fit a panorama into a thumbnail. Below `squareBelow` a 2:1 image is too
@@ -51,7 +97,7 @@ enum TrailerReader {
         return (nil, CGSize(width: width, height: width / aspect))
     }
 
-    private static func panoramaPayload(in file: FileHandle) -> Data? {
+    private static func record(_ wanted: Int, maxBytes: Int, in file: FileHandle) -> Data? {
         guard let size = (try? file.seekToEnd()).map(Int.init), size >= tailLength,
               let tail = read(file, at: size - tailLength, count: tailLength),
               tail.suffix(magic.count) == magic
@@ -69,8 +115,8 @@ enum TrailerReader {
             let payloadAt = headerAt - length
             guard length > 0, payloadAt >= trailerStart else { return nil }
 
-            if id == panoramaRecord {
-                guard length <= maxPanoramaBytes else { return nil }
+            if id == wanted {
+                guard length <= maxBytes else { return nil }
                 return read(file, at: payloadAt, count: length)
             }
 

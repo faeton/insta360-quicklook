@@ -5,5 +5,5 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 bin="$(mktemp -d)/trailer-tests"
-xcrun -sdk macosx swiftc tests/trailer/main.swift src/TrailerReader.swift src/ProxyResolver.swift -o "$bin"
+xcrun -sdk macosx swiftc tests/trailer/main.swift src/TrailerReader.swift src/ProxyResolver.swift src/PanoramaView.swift -o "$bin"
 "$bin" "$@"

@@ -7,6 +7,7 @@ import Foundation
 import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
+import Metal
 
 let magic = Array("8db42d694ccc418790edff439fe026bf".utf8)
 let dir = FileManager.default.temporaryDirectory
@@ -157,6 +158,31 @@ do {
     check("a square image is left alone", tall.crop == nil && tall.frame == CGSize(width: 64, height: 64))
 }
 
+// Capture wall clock
+do {
+    func field(_ number: Int, _ text: String) -> [UInt8] { [UInt8(number << 3 | 2), UInt8(text.utf8.count)] + Array(text.utf8) }
+    func number(_ number: Int, _ value: Int) -> [UInt8] {
+        var out = [UInt8(number << 3)], v = value
+        while v >= 0x80 { out.append(UInt8(v & 0x7F) | 0x80); v >>= 7 }
+        return out + [UInt8(v)]
+    }
+    let good = field(1, "SERIAL") + number(10, 253) + number(7, 20260625182503) + field(9, "x")
+    check("reads the wall clock from the info record",
+          TrailerReader.captureWallClock(at: file("w1.insv", video + trailer([(0x200, pano), (0x101, good)]))) == "20260625182503")
+    let cases: [(String, [UInt8])] = [
+        ("no such field", field(1, "SERIAL")),
+        ("too few digits", number(7, 2026)),
+        ("too many digits", number(7, 202606251825030)),
+        ("field overruns the message", [UInt8(1 << 3 | 2), 200, 0x31]),
+        ("unknown wire type", [0x0F, 1, 2, 3]),
+        ("truncated varint", [0x08, 0x80]),
+    ]
+    for (i, c) in cases.enumerated() {
+        check("no wall clock: \(c.0)", TrailerReader.captureWallClock(at: file("w\(i + 2).insv", video + trailer([(0x101, c.1)]))) == nil)
+    }
+    check("no wall clock: no trailer", TrailerReader.captureWallClock(at: file("w9.insv", video)) == nil)
+}
+
 // Proxy pairing
 do {
     let p = dir.appendingPathComponent("proxies")
@@ -178,6 +204,66 @@ do {
     check("an lrf has no proxy of its own", ProxyResolver.proxy(for: lrf) == nil)
 }
 
+// Panorama view: renders offscreen so the projection can be checked exactly
+func render(_ image: CGImage, camera: PanoramaCamera, width: Int = 16, height: Int = 16) -> [UInt8]? {
+    guard let renderer = PanoramaRenderer(image: image) else { return nil }
+    let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
+    d.usage = [.renderTarget, .shaderRead]
+    d.storageMode = .shared
+    let target = renderer.device.makeTexture(descriptor: d)!
+    let pass = MTLRenderPassDescriptor()
+    pass.colorAttachments[0].texture = target
+    pass.colorAttachments[0].loadAction = .clear
+    pass.colorAttachments[0].storeAction = .store
+    guard let buffer = renderer.commandBuffer(camera: camera, pass: pass, aspect: Float(width) / Float(height)) else { return nil }
+    buffer.commit()
+    buffer.waitUntilCompleted()
+    var out = [UInt8](repeating: 0, count: width * height * 4)
+    target.getBytes(&out, bytesPerRow: width * 4, from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
+    return out
+}
+do {
+    // Four 90° columns: front is red, right green, back blue, left yellow. Top half is lit.
+    let w = 64, h = 32
+    var px = [UInt8](repeating: 255, count: w * h * 4)
+    for y in 0..<h { for x in 0..<w {
+        let lon = (Double(x) + 0.5) / Double(w) * 360 - 180
+        let c: (UInt8, UInt8, UInt8)
+        switch lon {
+        case -45..<45: c = (255, 0, 0)
+        case 45..<135: c = (0, 255, 0)
+        case -135 ..< -45: c = (255, 255, 0)
+        default: c = (0, 0, 255)
+        }
+        let dim: UInt8 = y < h / 2 ? 1 : 2
+        let i = (y * w + x) * 4
+        px[i] = c.0 / dim; px[i + 1] = c.1 / dim; px[i + 2] = c.2 / dim
+    } }
+    let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+    let image = ctx.makeImage()!
+    func centre(_ yaw: Float, _ pitch: Float = 0.5) -> (r: UInt8, g: UInt8, b: UInt8)? {
+        guard let o = render(image, camera: PanoramaCamera(yaw: yaw, pitch: pitch, fov: 30)) else { return nil }
+        let i = (8 * 16 + 8) * 4   // BGRA
+        return (o[i + 2], o[i + 1], o[i])
+    }
+    let front = centre(0), right = centre(.pi / 2), back = centre(.pi), left = centre(-.pi / 2)
+    check("panorama: yaw 0 looks at the front", front.map { $0.r > 200 && $0.g < 60 && $0.b < 60 } ?? false)
+    check("panorama: turning right finds the right side", right.map { $0.g > 200 && $0.r < 60 } ?? false)
+    check("panorama: turning around finds the back", back.map { $0.b > 200 && $0.r < 60 } ?? false)
+    check("panorama: turning left finds the left side", left.map { $0.r > 200 && $0.g > 200 } ?? false)
+    let up = centre(0, 0.5), down = centre(0, -0.5)
+    check("panorama: looking up sees the top half", up.map { $0.r > 200 } ?? false)
+    check("panorama: looking down sees the bottom half", down.map { $0.r < 160 && $0.r > 90 } ?? false)
+}
+do {
+    var c = PanoramaCamera()
+    c.drag(dx: 0, dy: -100000, viewHeight: 100)
+    check("camera: pitch stops at the pole", abs(c.pitch) <= .pi / 2 + 0.001)
+    c = PanoramaCamera(); c.zoom(by: 1000)
+    check("camera: zoom stops at its limit", c.fov == 30)
+}
+
 // Real clips, by path
 for path in CommandLine.arguments.dropFirst() {
     let t0 = Date()
@@ -185,6 +271,8 @@ for path in CommandLine.arguments.dropFirst() {
     let ms = Date().timeIntervalSince(t0) * 1000
     let name = (path as NSString).lastPathComponent
     check(String(format: "real: %@ %dx%d in %.1f ms", name, img?.width ?? 0, img?.height ?? 0, ms), img != nil)
+    let clock = TrailerReader.captureWallClock(at: URL(fileURLWithPath: path))
+    check("real: \(name) wall clock \(clock ?? "none")", clock != nil)
     if let img, let out = ProcessInfo.processInfo.environment["PANO_OUT"] {
         let u = URL(fileURLWithPath: out).appendingPathComponent(name + ".png")
         let d = CGImageDestinationCreateWithURL(u as CFURL, UTType.png.identifier as CFString, 1, nil)!

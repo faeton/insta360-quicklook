@@ -28,7 +28,10 @@
         <dict>
             <key>QLSupportedContentTypes</key>
             <array>
-                <string>com.insta360.insv</string>
+                <string>dyn.ah62d4rv4ge80w5xxs2</string> <!-- .insv -->
+                <string>dyn.ah62d4rv4ge80w5xxsa</string> <!-- .insp -->
+                <string>dyn.ah62d4rv4ge8026x0</string> <!-- .lrv -->
+                <string>com.insta360.insv</string> <!-- stale records from v0.1 -->
                 <string>com.insta360.insp</string>
             </array>
             <key>QLSupportsSearchableItems</key>

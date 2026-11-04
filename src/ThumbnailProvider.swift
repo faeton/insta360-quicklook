@@ -1,5 +1,5 @@
 // Thumbnail.appex principal class — generates Finder/QL thumbnails for
-// .insv / .lrv (video) and .insp (image). First choice for all of them is the
+// .insv / .lrv / .osv / .lrf (video) and .insp (image). First choice for all of them is the
 // stitched panorama the camera stores in the file's trailer (TrailerReader),
 // which needs no decode. If that isn't available:
 //
@@ -9,6 +9,10 @@
 //              Hardlink the chosen source to <tmp>/<uuid>.mp4 so AVFoundation
 //              opens it (it routes by extension, not UTI).
 //   - .lrv   → same hardlink trick.
+//   - .osv   → DJI Osmo 360. Same AVFoundation extension-routing bug, same
+//              hardlink trick. Carries two HEVC tracks, one per lens, so the
+//              generator yields a single lens unless the paired .lrf is readable.
+//   - .lrf   → DJI's proxy: one H.264 track, both lenses side-by-side.
 //
 // See PLAN.md and experiments/findings.md for why each detail is needed.
 import QuickLookThumbnailing
@@ -62,7 +66,7 @@ final class ThumbnailProvider: QLThumbnailProvider {
             .appendingPathComponent("\(UUID().uuidString).mp4")
         defer { try? FileManager.default.removeItem(at: tmp) }
         let ext = url.pathExtension.lowercased()
-        let badge = (ext == "insv" || ext == "lrv")
+        let badge = ["insv", "lrv", "osv", "lrf"].contains(ext)
 
         if let panorama = TrailerReader.panorama(at: url) {
             log.info("panorama \(url.lastPathComponent, privacy: .public)")
@@ -79,7 +83,7 @@ final class ThumbnailProvider: QLThumbnailProvider {
 
         log.info("decoding a frame for \(url.lastPathComponent, privacy: .public)")
         do {
-            try linkAsMP4(ProxyResolver.lrvProxy(for: url) ?? url, at: tmp)
+            try linkAsMP4(ProxyResolver.proxy(for: url) ?? url, at: tmp)
         } catch {
             handler(nil, error); return
         }

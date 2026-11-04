@@ -157,6 +157,27 @@ do {
     check("a square image is left alone", tall.crop == nil && tall.frame == CGSize(width: 64, height: 64))
 }
 
+// Proxy pairing
+do {
+    let p = dir.appendingPathComponent("proxies")
+    try! FileManager.default.createDirectory(at: p, withIntermediateDirectories: true)
+    func touch(_ n: String) -> URL { let u = p.appendingPathComponent(n); try! Data().write(to: u); return u }
+    let insv = touch("VID_20260625_182503_00_054.insv")
+    check("insv without a proxy", ProxyResolver.proxy(for: insv) == nil)
+    let lrv = touch("LRV_20260625_182503_01_054.lrv")
+    check("insv pairs with its lrv", ProxyResolver.proxy(for: insv)?.lastPathComponent == lrv.lastPathComponent)
+    try! FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: lrv.path)
+    check("an unreadable lrv counts as no proxy", ProxyResolver.proxy(for: insv) == nil)
+    let osv = touch("CAM_20260625182503_0054_D.OSV")
+    check("osv without a proxy", ProxyResolver.proxy(for: osv) == nil)
+    let lrf = touch("CAM_20260625182503_0054_D.LRF")
+    check("osv pairs with its LRF", ProxyResolver.proxy(for: osv)?.lastPathComponent.lowercased() == lrf.lastPathComponent.lowercased())
+    let lower = touch("CAM_20260625182504_0055_D.osv")
+    let lowerProxy = touch("CAM_20260625182504_0055_D.lrf")
+    check("a lowercased osv pairs with its lrf", ProxyResolver.proxy(for: lower)?.lastPathComponent.lowercased() == lowerProxy.lastPathComponent.lowercased())
+    check("an lrf has no proxy of its own", ProxyResolver.proxy(for: lrf) == nil)
+}
+
 // Real clips, by path
 for path in CommandLine.arguments.dropFirst() {
     let t0 = Date()

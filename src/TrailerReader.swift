@@ -34,6 +34,23 @@ enum TrailerReader {
         return decode(payload)
     }
 
+    /// How to fit a panorama into a thumbnail. Below `squareBelow` a 2:1 image is too
+    /// short to read, so it takes the centre square. Above it, the full panorama keeps
+    /// its own shape, so there are no bars around it.
+    static func framing(imageWidth: Int, imageHeight: Int, maximum: CGSize,
+                        squareBelow: CGFloat = 128) -> (crop: CGRect?, frame: CGSize) {
+        guard imageWidth > imageHeight, imageHeight > 0 else { return (nil, maximum) }
+        if min(maximum.width, maximum.height) < squareBelow {
+            let side = min(maximum.width, maximum.height)
+            let crop = CGRect(x: (imageWidth - imageHeight) / 2, y: 0,
+                              width: imageHeight, height: imageHeight)
+            return (crop, CGSize(width: side, height: side))
+        }
+        let aspect = CGFloat(imageWidth) / CGFloat(imageHeight)
+        let width = min(maximum.width, maximum.height * aspect)
+        return (nil, CGSize(width: width, height: width / aspect))
+    }
+
     private static func panoramaPayload(in file: FileHandle) -> Data? {
         guard let size = (try? file.seekToEnd()).map(Int.init), size >= tailLength,
               let tail = read(file, at: size - tailLength, count: tailLength),

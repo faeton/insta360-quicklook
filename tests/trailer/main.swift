@@ -144,6 +144,19 @@ do {
           TrailerReader.panorama(at: file("many.insv", video + trailer([(0x200, pano)] + many))) == nil)
 }
 
+// Thumbnail framing
+do {
+    let small = TrailerReader.framing(imageWidth: 1280, imageHeight: 640, maximum: CGSize(width: 64, height: 64))
+    check("64 px takes the centre square",
+          small.crop == CGRect(x: 320, y: 0, width: 640, height: 640) && small.frame == CGSize(width: 64, height: 64))
+    let large = TrailerReader.framing(imageWidth: 1280, imageHeight: 640, maximum: CGSize(width: 256, height: 256))
+    check("256 px keeps the full 2:1 panorama", large.crop == nil && large.frame == CGSize(width: 256, height: 128))
+    let edge = TrailerReader.framing(imageWidth: 1280, imageHeight: 640, maximum: CGSize(width: 128, height: 128))
+    check("128 px is the first full-panorama size", edge.crop == nil && edge.frame == CGSize(width: 128, height: 64))
+    let tall = TrailerReader.framing(imageWidth: 640, imageHeight: 640, maximum: CGSize(width: 64, height: 64))
+    check("a square image is left alone", tall.crop == nil && tall.frame == CGSize(width: 64, height: 64))
+}
+
 // Real clips, by path
 for path in CommandLine.arguments.dropFirst() {
     let t0 = Date()

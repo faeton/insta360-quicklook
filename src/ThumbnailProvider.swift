@@ -17,6 +17,7 @@ import AppKit
 import OSLog
 
 private let log = Logger(subsystem: "com.faeton.insta360quicklook", category: "thumbnail")
+private let minLabelHeight: CGFloat = 96
 
 @objc(ThumbnailProvider)
 final class ThumbnailProvider: QLThumbnailProvider {
@@ -38,7 +39,8 @@ final class ThumbnailProvider: QLThumbnailProvider {
     private func handleImage(url: URL, size: CGSize, handler: @escaping (QLThumbnailReply?, Error?) -> Void) {
         if let panorama = TrailerReader.panorama(at: url) {
             log.info("panorama \(url.lastPathComponent, privacy: .public)")
-            handler(makeReply(cg: panorama, size: size), nil)
+            let framed = frame(panorama, in: size)
+            handler(makeReply(cg: framed.image, size: framed.size), nil)
             return
         }
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else {
@@ -64,10 +66,14 @@ final class ThumbnailProvider: QLThumbnailProvider {
 
         if let panorama = TrailerReader.panorama(at: url) {
             log.info("panorama \(url.lastPathComponent, privacy: .public)")
-            // The label is a nicety, so the panorama still shows without it.
-            let info = (try? linkAsMP4(url, at: tmp)) != nil
-                ? videoInfo(asset: AVURLAsset(url: tmp)) : nil
-            handler(makeReply(cg: panorama, size: size, overlay: info, badge: badge), nil)
+            let framed = frame(panorama, in: size)
+            // The label is a nicety, so the panorama still shows without it. Skip the
+            // work entirely at sizes where it won't be drawn.
+            var info: String?
+            if framed.size.height >= minLabelHeight, (try? linkAsMP4(url, at: tmp)) != nil {
+                info = videoInfo(asset: AVURLAsset(url: tmp))
+            }
+            handler(makeReply(cg: framed.image, size: framed.size, overlay: info, badge: badge), nil)
             return
         }
 
@@ -81,6 +87,13 @@ final class ThumbnailProvider: QLThumbnailProvider {
             handler(nil, NSError(domain: "Insta360QuickLook", code: 3)); return
         }
         handler(makeReply(cg: decoded.image, size: size, overlay: decoded.info, badge: badge), nil)
+    }
+
+    private func frame(_ panorama: CGImage, in maximum: CGSize) -> (image: CGImage, size: CGSize) {
+        let framing = TrailerReader.framing(
+            imageWidth: panorama.width, imageHeight: panorama.height, maximum: maximum)
+        let image = framing.crop.flatMap { panorama.cropping(to: $0) } ?? panorama
+        return (image, framing.frame)
     }
 
     private func linkAsMP4(_ source: URL, at tmp: URL) throws {
@@ -164,7 +177,7 @@ final class ThumbnailProvider: QLThumbnailProvider {
                 rect = CGRect(x: (size.width - w) / 2, y: 0, width: w, height: size.height)
             }
             ctx.draw(cg, in: rect)
-            if size.height >= 96 {
+            if size.height >= minLabelHeight {
                 if let text = overlay { drawOverlay(text: text, frameSize: size) }
                 if badge { drawBadge(frameSize: size) }
             }
@@ -215,12 +228,15 @@ private func drawBadge(frameSize: CGSize) {
     path.lineWidth = max(1, diameter * 0.04)
     path.stroke()
 
-    let fontSize = diameter * 0.42
-    let attrs: [NSAttributedString.Key: Any] = [
-        .font: NSFont.systemFont(ofSize: fontSize, weight: .heavy),
-        .foregroundColor: NSColor.white,
-    ]
-    let astr = NSAttributedString(string: "360°", attributes: attrs)
+    // Size the text from its measured width, so "360°" always fits inside the circle.
+    func label(_ fontSize: CGFloat) -> NSAttributedString {
+        NSAttributedString(string: "360°", attributes: [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .heavy),
+            .foregroundColor: NSColor.white,
+        ])
+    }
+    let reference: CGFloat = 20
+    let astr = label(reference * diameter * 0.8 / label(reference).size().width)
     let tsize = astr.size()
     astr.draw(at: CGPoint(x: rect.midX - tsize.width / 2,
                           y: rect.midY - tsize.height / 2))

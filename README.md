@@ -14,13 +14,20 @@ play/pause, scrub — and dual-fisheye footage from both lenses, not a
 generic blue icon. Works on HEVC clips of any size, including the 2 GB+
 files that the underlying macOS bug breaks for everyone.
 
-> **Why this exists:** out of the box, pressing Space on an `.insv` in
-> Finder shows nothing — generic blue INSV icon, no playback. macOS
-> doesn't recognize the extension; Insta360 Studio's bundled QuickLook
-> handler is buried under `PlugIns/` where LaunchServices never finds
-> it; AVFoundation refuses to open `.insv`/`.lrv` even after declaring
-> them as `public.mpeg-4`. This extension fixes all of that with no
-> reliance on Studio.
+> [!WARNING]
+> **v0.1 conflicts with Insta360 Studio's own Quick Look plugin.** It
+> declares its own file types for `.insv`, `.insp` and `.lrv`, and in
+> testing with Studio 6.0.7 that stopped Studio's preview from launching.
+> **If you have Studio 5.6.1 or later, use its plugin and don't install
+> this.** The Homebrew cask is disabled for this reason. If v0.1 is already
+> installed, see [Uninstall](#uninstall). A future release is planned to
+> coexist with Studio and to serve Macs without it.
+
+> **Why this exists:** without a Quick Look handler, pressing Space on an
+> `.insv` in Finder shows nothing — generic blue INSV icon, no playback.
+> macOS doesn't recognize the extension, and AVFoundation refuses to open
+> `.insv`/`.lrv` even after declaring them as `public.mpeg-4`. This
+> extension handles all of that with no reliance on Studio.
 
 ## What you get
 
@@ -39,8 +46,8 @@ files that the underlying macOS bug breaks for everyone.
 - **LRV proxy substitution.** When you Space an `.insv`, the extension
   finds the camera-written `LRV_*.lrv` proxy alongside it and uses
   *that* as the playback source: smaller (5–10×), H.264 instead of
-  HEVC, and pre-stitched dual-fisheye showing both lenses
-  simultaneously. Falls back to the raw `.insv` if no LRV is present.
+  HEVC, and side-by-side fisheye showing both lenses simultaneously
+  (not stitched). Falls back to the raw `.insv` if no LRV is present.
 - Works for HEVC `.insv` files larger than 2 GB — the original failing
   case that the underlying macOS bug breaks for everyone.
 
@@ -48,11 +55,9 @@ files that the underlying macOS bug breaks for everyone.
 
 Requirements: macOS 13+ (built and tested on Tahoe 26.4).
 
-### Homebrew (recommended)
-
-```bash
-brew install --cask faeton/tap/insta360-quicklook
-```
+Read the [warning above](#insta360-quicklook) first: install v0.1 only on
+a Mac without Insta360 Studio. The Homebrew cask is disabled and now refuses
+to install.
 
 ### From source
 
@@ -82,13 +87,37 @@ synthetic icon.
 
 ## Uninstall
 
+If you installed with Homebrew, try this first:
+
 ```bash
-APP="$HOME/Library/Application Support/Insta360QL/Insta360QuickLook.app"
-/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -u "$APP"
-rm -rf "$APP"
+brew uninstall --cask insta360-quicklook
+```
+
+Then run this for any install, including one from source or the release
+zip. It removes every standard install location and is safe to run if a
+copy isn't there:
+
+```bash
+LSREG=/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister
+for APP in "/Applications/Insta360QuickLook.app" \
+           "$HOME/Library/Application Support/Insta360QL/Insta360QuickLook.app"; do
+  "$LSREG" -u "$APP" 2>/dev/null
+  rm -rf "$APP"
+done
 qlmanage -r && qlmanage -r cache
 killall Finder
 ```
+
+A built copy left inside a source checkout (`./Insta360QuickLook.app`, or
+under `experiments/`) also keeps its file types registered, so unregister and
+delete it the same way, or delete the checkout. To check the result:
+
+```bash
+"$LSREG" -dump | grep -c 'com.insta360.insv'   # should print 0
+```
+
+If you use Studio's plugin and its preview still doesn't appear, check
+**System Settings → General → Login Items & Extensions → QuickLookHost**.
 
 ## How it works (short version)
 
@@ -112,8 +141,8 @@ This project's fix has two parts:
    hardlink as a regular MP4. Decode time of the first I-frame is
    ~0.1s regardless of file size (works fine on a 2.5 GB HEVC `.insv`).
 
-3. For Space-press previews, prefer the camera's pre-stitched LRV proxy
-   over the raw `.insv` — see `src/ProxyResolver.swift`. This is purely
+3. For Space-press previews, prefer the camera's LRV proxy (side-by-side
+   fisheye, not stitched) over the raw `.insv` — see `src/ProxyResolver.swift`. This is purely
    a UX optimization; we'd work without it.
 
 The full empirical writeup — including 10 specific gotchas that bit
@@ -165,11 +194,18 @@ camera-written H.264 LRV proxies).
 
 ## Status
 
-v0.1: works on macOS 26.4. Ad-hoc signed (no Developer ID needed for
-personal use). Not yet on Homebrew or notarized.
+v0.1: works on macOS 26.4. Ad-hoc signed, not notarized, so Gatekeeper
+rejects it. The Homebrew cask is disabled because v0.1 conflicts with Insta360
+Studio's plugin.
 
 Known limitations:
 
+- Conflicts with Insta360 Studio's Quick Look plugin (see the warning at
+  the top).
+- LRV proxy substitution may not work on current macOS: a contributor
+  reports the sandbox refusing to read sibling files on 26.6
+  ([#1](https://github.com/faeton/insta360-quicklook/pull/1)). Not yet
+  reproduced here.
 - Audio briefly continues (~200ms) after closing the QL panel — XPC
   tear-down latency we can't shorten without abandoning AVPlayerView.
 - Cross-volume hardlink fallback (symlink) is exercised in plain Swift

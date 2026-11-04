@@ -52,7 +52,8 @@ build_appex() {
     #   -Xlinker -e _NSExtensionMain — direct-call system entry, avoids
     #                                  recursion through Swift's auto-main
     #   no main.swift, no top-level statements anywhere
-    #   ProxyResolver.swift compiled into both modules (shared logic)
+    #   ProxyResolver.swift and TrailerReader.swift compiled into both modules
+    #   (shared logic)
     xcrun -sdk macosx swiftc \
         -module-name "$module" \
         -application-extension \
@@ -62,6 +63,7 @@ build_appex() {
         -Xlinker -e -Xlinker _NSExtensionMain \
         "$principal_source" \
         src/ProxyResolver.swift \
+        src/TrailerReader.swift \
         -o "$APPEX/Contents/MacOS/$name"
 
     cp "$plist" "$APPEX/Contents/Info.plist"

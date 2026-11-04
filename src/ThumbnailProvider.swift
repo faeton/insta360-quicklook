@@ -1,5 +1,7 @@
 // Thumbnail.appex principal class — generates Finder/QL thumbnails for
-// .insv / .lrv (video) and .insp (image) by:
+// .insv / .lrv (video) and .insp (image). First choice for all of them is the
+// stitched panorama the camera stores in the file's trailer (TrailerReader),
+// which needs no decode. If that isn't available:
 //
 //   - .insp  → CGImageSourceCreateThumbnailAtIndex (handles JPEG and HEIC)
 //   - .insv  → if a paired LRV proxy exists nearby, prefer it (smaller,
@@ -34,6 +36,11 @@ final class ThumbnailProvider: QLThumbnailProvider {
     }
 
     private func handleImage(url: URL, size: CGSize, handler: @escaping (QLThumbnailReply?, Error?) -> Void) {
+        if let panorama = TrailerReader.panorama(at: url) {
+            log.info("panorama \(url.lastPathComponent, privacy: .public)")
+            handler(makeReply(cg: panorama, size: size), nil)
+            return
+        }
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else {
             handler(nil, NSError(domain: "Insta360QuickLook", code: 1)); return
         }
@@ -49,25 +56,39 @@ final class ThumbnailProvider: QLThumbnailProvider {
     }
 
     private func handleVideo(url: URL, size: CGSize, handler: @escaping (QLThumbnailReply?, Error?) -> Void) {
-        let source = ProxyResolver.lrvProxy(for: url) ?? url
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(UUID().uuidString).mp4")
         defer { try? FileManager.default.removeItem(at: tmp) }
+        let ext = url.pathExtension.lowercased()
+        let badge = (ext == "insv" || ext == "lrv")
+
+        if let panorama = TrailerReader.panorama(at: url) {
+            log.info("panorama \(url.lastPathComponent, privacy: .public)")
+            // The label is a nicety, so the panorama still shows without it.
+            let info = (try? linkAsMP4(url, at: tmp)) != nil
+                ? videoInfo(asset: AVURLAsset(url: tmp)) : nil
+            handler(makeReply(cg: panorama, size: size, overlay: info, badge: badge), nil)
+            return
+        }
+
+        log.info("decoding a frame for \(url.lastPathComponent, privacy: .public)")
         do {
-            try FileManager.default.linkItem(at: source, to: tmp)
+            try linkAsMP4(ProxyResolver.lrvProxy(for: url) ?? url, at: tmp)
         } catch {
-            do {
-                try FileManager.default.createSymbolicLink(at: tmp, withDestinationURL: source)
-            } catch {
-                handler(nil, error); return
-            }
+            handler(nil, error); return
         }
         guard let decoded = decode(url: tmp) else {
             handler(nil, NSError(domain: "Insta360QuickLook", code: 3)); return
         }
-        let ext = url.pathExtension.lowercased()
-        let badge = (ext == "insv" || ext == "lrv")
         handler(makeReply(cg: decoded.image, size: size, overlay: decoded.info, badge: badge), nil)
+    }
+
+    private func linkAsMP4(_ source: URL, at tmp: URL) throws {
+        do {
+            try FileManager.default.linkItem(at: source, to: tmp)
+        } catch {
+            try FileManager.default.createSymbolicLink(at: tmp, withDestinationURL: source)
+        }
     }
 
     private func decode(url: URL) -> (image: CGImage, info: String?)? {

@@ -202,6 +202,18 @@ do {
     let lowerProxy = touch("CAM_20260625182504_0055_D.lrf")
     check("a lowercased osv pairs with its lrf", ProxyResolver.proxy(for: lower)?.lastPathComponent.lowercased() == lowerProxy.lastPathComponent.lowercased())
     check("an lrf has no proxy of its own", ProxyResolver.proxy(for: lrf) == nil)
+
+    // ONE R: proxy is .insv, sensor index 11, and the clip is split across two
+    // single-lens files that must both find it.
+    let oneRA = touch("VID_20250906_102814_00_036.insv")
+    let oneRB = touch("VID_20250906_102814_10_036.insv")
+    check("one r without a proxy", ProxyResolver.proxy(for: oneRA) == nil)
+    let oneRProxy = touch("LRV_20250906_102814_11_036.insv")
+    check("one r lens 00 pairs with its insv proxy",
+          ProxyResolver.proxy(for: oneRA)?.lastPathComponent == oneRProxy.lastPathComponent)
+    check("one r lens 10 pairs with the same proxy",
+          ProxyResolver.proxy(for: oneRB)?.lastPathComponent == oneRProxy.lastPathComponent)
+    check("the one r proxy has no proxy of its own", ProxyResolver.proxy(for: oneRProxy) == nil)
 }
 
 // Panorama view: renders offscreen so the projection can be checked exactly

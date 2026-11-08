@@ -286,9 +286,15 @@ A baseline on 26.6.2 with no build of ours ever installed confirmed it gives
 **no** thumbnails there: `.insv` and `.insp` both come back as `icon`. DJI
 Studio exports `com.light.studio.thumbnail.osv`, so `.osv`/`.lrf` are fine.
 
-So on 26.6 importing the types costs Studio nothing. Studio's thumbnails and
-preview only depend on the file staying `dyn.*` where `dyn.*` is what the OS
-resolves to.
+Space preview resolves differently: on the same 26.6.2 machine Studio's
+preview *does* open on `.insv`, so the preview path still sees `dyn.*`.
+Our preview never ran there, because Studio's extension won every time.
+Studio shows a banner on X3-and-earlier footage instead of stitching it
+("Preview of .insv files from the Insta360 X3 and earlier models is currently
+not supported"). It renders the `LRV_…_11_…` side-by-side proxy without one.
+
+So importing the types would cost Studio nothing for thumbnails on 26.6, but
+it would still take the preview away from X4/X5 owners.
 
 ## Open risks for v2 / production
 

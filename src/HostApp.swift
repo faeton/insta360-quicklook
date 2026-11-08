@@ -10,7 +10,7 @@ private func pluginkit(_ arguments: [String]) -> String {
     process.arguments = arguments
     let pipe = Pipe()
     process.standardOutput = pipe
-    process.standardError = Pipe()
+    process.standardError = FileHandle.nullDevice
     guard (try? process.run()) != nil else { return "" }
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
@@ -30,6 +30,25 @@ private func registerExtensions() {
     for appex in found where appex.pathExtension == "appex" {
         _ = pluginkit(["-a", appex.path])
     }
+    applyFallback()
+}
+
+// Below macOS 27, ThumbnailsAgent types .insv/.insp as public.data when no app
+// declares them, so only an extension claiming public.data is asked (#4). On 27
+// they resolve to dyn.* and the main extension covers them, so keep it off there.
+// After an upgrade to 27 the extension refuses everything until this runs again.
+private func applyFallback() {
+    _ = pluginkit(["-e", fallbackNeeded ? "use" : "ignore", "-i", fallbackID])
+}
+
+private var fallbackEnabled: Bool {
+    pluginkit(["-m", "-i", fallbackID]).components(separatedBy: "\n")
+        .contains { $0.trimmingCharacters(in: .whitespaces).hasPrefix("+") }
+}
+
+private let fallbackID = "com.faeton.insta360quicklook.thumbnail-fallback"
+private var fallbackNeeded: Bool {
+    ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 27
 }
 
 private func statusText() -> String {
@@ -50,6 +69,10 @@ private func statusText() -> String {
         lines.append("Insta360 Studio's plugin isn't installed, so this app handles Insta360 files.")
     }
     if dji { lines.append("DJI Studio's plugin is also installed, so DJI previews may come from either plugin.") }
+    if fallbackNeeded {
+        lines.append(fallbackEnabled ? "✓ Thumbnails for Insta360 files on this version of macOS are switched on."
+                        : "✗ Thumbnails for Insta360 files on this version of macOS aren't switched on. Press Refresh to try again.")
+    }
     lines.append("")
 
     let custom = ["insv", "insp", "lrv"].filter { UTType(filenameExtension: $0)?.isDynamic == false }
@@ -121,6 +144,7 @@ final class HostApp: NSObject, NSApplicationDelegate {
     @objc private func refreshStatus() {
         guard let label else { return }
         DispatchQueue.global().async {
+            applyFallback()
             let text = statusText()
             DispatchQueue.main.async { label.stringValue = text }
         }

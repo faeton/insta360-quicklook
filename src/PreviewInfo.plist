@@ -2,44 +2,44 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleIdentifier</key>
-    <string>com.faeton.insta360quicklook.preview</string>
-    <key>CFBundleName</key>
-    <string>Preview</string>
-    <key>CFBundleDisplayName</key>
-    <string>Insta360 Preview</string>
-    <key>CFBundleExecutable</key>
-    <string>Preview</string>
-    <key>CFBundlePackageType</key>
-    <string>XPC!</string>
-    <key>CFBundleVersion</key>
-    <string>2</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.2.0</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>13.0</string>
-    <key>NSExtension</key>
-    <dict>
-        <key>NSExtensionPointIdentifier</key>
-        <string>com.apple.quicklook.preview</string>
-        <key>NSExtensionPrincipalClass</key>
-        <string>Preview.PreviewViewController</string>
-        <key>NSExtensionAttributes</key>
-        <dict>
-            <key>QLSupportedContentTypes</key>
-            <array>
-                <string>dyn.ah62d4rv4ge80w5xxs2</string> <!-- .insv -->
-                <string>dyn.ah62d4rv4ge80w5xxsa</string> <!-- .insp -->
-                <string>dyn.ah62d4rv4ge8026x0</string> <!-- .lrv -->
-                <string>dyn.ah62d4rv4ge808650</string> <!-- .osv -->
-                <string>dyn.ah62d4rv4ge8026xg</string> <!-- .lrf -->
-                <string>com.light.studio.thumbnail.osv</string> <!-- DJI Studio's type for .osv/.lrf -->
-                <string>com.insta360.insv</string> <!-- stale records from v0.1 -->
-                <string>com.insta360.insp</string>
-            </array>
-            <key>QLSupportsSearchableItems</key>
-            <false/>
-        </dict>
-    </dict>
+	<key>CFBundleDisplayName</key>
+	<string>Insta360 Preview</string>
+	<key>CFBundleExecutable</key>
+	<string>Preview</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.faeton.insta360quicklook.preview</string>
+	<key>CFBundleName</key>
+	<string>Preview</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.2.0</string>
+	<key>CFBundleVersion</key>
+	<string>3</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionAttributes</key>
+		<dict>
+			<key>QLSupportedContentTypes</key>
+			<array>
+				<string>dyn.ah62d4rv4ge80w5xxs2</string>
+				<string>dyn.ah62d4rv4ge80w5xxsa</string>
+				<string>dyn.ah62d4rv4ge8026x0</string>
+				<string>dyn.ah62d4rv4ge808650</string>
+				<string>dyn.ah62d4rv4ge8026xg</string>
+				<string>com.light.studio.thumbnail.osv</string>
+				<string>com.insta360.insv</string>
+				<string>com.insta360.insp</string>
+			</array>
+			<key>QLSupportsSearchableItems</key>
+			<false/>
+		</dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.quicklook.preview</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>Preview.PreviewViewController</string>
+	</dict>
 </dict>
 </plist>

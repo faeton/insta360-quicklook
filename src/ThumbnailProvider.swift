@@ -25,13 +25,25 @@ private let minLabelHeight: CGFloat = 96
 
 @objc(ThumbnailProvider)
 final class ThumbnailProvider: QLThumbnailProvider {
+    static let extensions: Set<String> = ["insv", "insp", "lrv", "osv", "lrf"]
+    static let bundleID = Bundle.main.bundleIdentifier ?? "?"
+    static let isFallback = bundleID.hasSuffix(".thumbnail-fallback")
+    static let osMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+
     override func provideThumbnail(
         for request: QLFileThumbnailRequest,
         _ handler: @escaping (QLThumbnailReply?, Error?) -> Void
     ) {
         let url = request.fileURL
         let ext = url.pathExtension.lowercased()
-        log.info("invoked \(url.lastPathComponent, privacy: .public)")
+        // ThumbnailFallback.appex is built from this file and claims public.data, so
+        // it is asked about every untyped file on the Mac. Refuse anything else at once.
+        // On macOS 27 the files are dyn.* and the main extension handles them; the
+        // fallback stays enabled after an upgrade until HostApp runs again.
+        guard Self.extensions.contains(ext), !(Self.isFallback && Self.osMajor >= 27) else {
+            handler(nil, NSError(domain: "Insta360QuickLook", code: 0)); return
+        }
+        log.info("invoked \(url.lastPathComponent, privacy: .public) via \(Self.bundleID, privacy: .public)")
 
         if ext == "insp" {
             handleImage(url: url, size: request.maximumSize, handler: handler)

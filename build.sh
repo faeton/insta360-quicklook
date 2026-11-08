@@ -105,6 +105,11 @@ build_appex() {
 build_appex Thumbnail Thumbnail src/ThumbnailProvider.swift src/ThumbnailInfo.plist src/Thumbnail.entitlements \
     QuickLookThumbnailing AVFoundation AppKit
 
+# Same provider, claiming public.data for macOS 26 and earlier (#4). HostApp turns
+# it on or off depending on the OS.
+build_appex ThumbnailFallback ThumbnailFallback src/ThumbnailProvider.swift src/ThumbnailFallbackInfo.plist src/Thumbnail.entitlements \
+    QuickLookThumbnailing AVFoundation AppKit
+
 build_appex Preview Preview "src/PreviewViewController.swift src/PanoramaView.swift" src/PreviewInfo.plist src/Preview.entitlements \
     QuickLookUI AVKit AppKit Metal MetalKit
 
@@ -118,6 +123,7 @@ find "$APP" -type f | sort
 echo
 ls -lh "$APP/Contents/MacOS/Insta360QuickLook" \
        "$APP/Contents/PlugIns/Thumbnail.appex/Contents/MacOS/Thumbnail" \
+       "$APP/Contents/PlugIns/ThumbnailFallback.appex/Contents/MacOS/ThumbnailFallback" \
        "$APP/Contents/PlugIns/Preview.appex/Contents/MacOS/Preview"
 echo
 echo "Built. Run ./install.sh to install."

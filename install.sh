@@ -34,7 +34,10 @@ echo "+ installed to $DEST/$APP"
 for ext in "$DEST/$APP/Contents/PlugIns/"*.appex; do
     pluginkit -a "$ext"
 done
-echo "+ registered with LaunchServices and pluginkit"
+# Same rule as HostApp.applyFallback: the public.data fallback is for macOS 26 and earlier (#4).
+if (( $(sw_vers -productVersion | cut -d. -f1) < 27 )); then fallback=use; else fallback=ignore; fi
+pluginkit -e "$fallback" -i com.faeton.insta360quicklook.thumbnail-fallback
+echo "+ registered with LaunchServices and pluginkit (public.data fallback: $fallback)"
 
 qlmanage -r > /dev/null 2>&1
 qlmanage -r cache > /dev/null 2>&1

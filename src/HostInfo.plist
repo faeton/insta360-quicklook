@@ -2,27 +2,27 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleIdentifier</key>
-    <string>com.faeton.insta360quicklook</string>
-    <key>CFBundleName</key>
-    <string>Insta360 QuickLook</string>
-    <key>CFBundleDisplayName</key>
-    <string>Insta360 QuickLook</string>
-    <key>CFBundleExecutable</key>
-    <string>Insta360QuickLook</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundleIconName</key>
-    <string>AppIcon</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleVersion</key>
-    <string>2</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.2.0</string>
-    <key>NSHumanReadableCopyright</key>
-    <string>MIT License — github.com/faeton/insta360-quicklook</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>13.0</string>
+	<key>CFBundleDisplayName</key>
+	<string>Insta360 QuickLook</string>
+	<key>CFBundleExecutable</key>
+	<string>Insta360QuickLook</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.faeton.insta360quicklook</string>
+	<key>CFBundleName</key>
+	<string>Insta360 QuickLook</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.2.0</string>
+	<key>CFBundleVersion</key>
+	<string>3</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>MIT License — github.com/faeton/insta360-quicklook</string>
 </dict>
 </plist>

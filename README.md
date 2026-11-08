@@ -3,7 +3,7 @@
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange)](https://swift.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tahoe verified](https://img.shields.io/badge/macOS%2026.4-verified-success)]()
+[![Tested on macOS 26 and 27](https://img.shields.io/badge/tested-macOS%2026%20%C2%B7%2027-success)]()
 
 Native macOS Quick Look extension that fixes broken Finder previews and
 thumbnails for Insta360 files: `.insv`, `.insp`, `.lrv`. Built for
@@ -59,7 +59,8 @@ decides which.
 
 ## Install
 
-Requirements: macOS 13+. Tested on macOS 27.2 with Insta360 X5 footage.
+Requirements: macOS 13 or later, Apple Silicon or Intel. Tested on macOS 26.6 and 27.2;
+older versions should work but haven't been tried.
 
 ### Beta
 
@@ -195,7 +196,7 @@ MIT — see [LICENSE](LICENSE).
 | `.lrv` | H.264 (camera proxy) | ✅ |
 | `.insp` | JPEG | ✅ |
 | `.insp` | HEIC (newer firmware) | ✅ via `CGImageSource`, not separately verified |
-| `.osv` / `.lrf` | HEVC / H.264 (DJI Osmo 360) | Beta: reported working by a contributor before the type rework, not yet re-tested |
+| `.osv` / `.lrf` | HEVC / H.264 (DJI Osmo 360) | ✅ thumbnails, tested by a contributor on real footage (macOS 26.6) |
 
 Tested on Insta360 X3 / X4 footage (10K and 8K HEVC `.insv` plus the
 camera-written H.264 LRV proxies).
@@ -203,9 +204,11 @@ camera-written H.264 LRV proxies).
 ## Status
 
 v0.2 is in beta: notarized, and tested with Insta360 X5 footage on macOS 27.2, beside
-Studio 6.0.7. DJI Osmo 360 support (`.osv`, `.lrf`) came from a contributor and has only
-been checked here with stand-in files, not real DJI footage. It shows a flat preview, so
-`.osv` may show a single lens. Other Insta360 cameras may have no panorama, and then
+Studio 6.0.7, and by a contributor with Insta360 ONE R and DJI Osmo 360 footage on
+macOS 26.6. On macOS 26 and earlier, Insta360 thumbnails don't appear yet, because macOS
+gives `.insv`/`.insp` no file type there ([#4](https://github.com/faeton/insta360-quicklook/issues/4));
+beta.3 tries a fix. DJI files show a flat preview, and `.osv` shows a single lens
+unless its `.LRF` sits beside it on the boot volume. Other Insta360 cameras may have no panorama, and then
 fall back to decoding a frame.
 
 The file format this reads is undocumented, so a firmware update could change it.

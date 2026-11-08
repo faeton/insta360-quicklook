@@ -1,5 +1,6 @@
 // 360 cameras write a paired low-res proxy alongside each full-res clip:
 //   Insta360  VID_<ts>_<sensorA>_<idx>.insv ↔ LRV_<ts>_<sensorB>_<idx>.lrv
+//             ONE R uses .insv for the proxy too, with sensor index 11
 //   DJI       CAM_<ts>_<idx>_D.OSV          ↔ CAM_<ts>_<idx>_D.LRF
 // The proxy is side-by-side fisheye (not stitched), H.264, 5–10× smaller. A
 // better Quick Look source when it can be read, and for DJI the only way to show
@@ -29,7 +30,15 @@ enum ProxyResolver {
         FileManager.default.isReadableFile(atPath: url.path)
     }
 
-    // Probe 01 first — it's the camera convention — then 02, then 00.
+    // Probe 01 first — it's the camera convention — then 02, then 00, then 11.
+    // A ONE R writes one 2880x2880 fisheye per .insv, two files per clip, and
+    // names its proxy LRV_<ts>_11_<idx>.insv — sensor 11, and .insv rather than
+    // .lrv. That proxy is 736x368, side by side, so it is the only single file
+    // of the set showing both lenses. Probe both extensions for every index,
+    // since the index and the extension vary independently across models.
+    private static let insta360Sensors = ["01", "02", "00", "11"]
+    private static let insta360ProxyExtensions = ["lrv", "insv"]
+
     private static func insta360LRV(for url: URL) -> URL? {
         let name = url.deletingPathExtension().lastPathComponent
         guard name.hasPrefix("VID_") else { return nil }
@@ -39,10 +48,12 @@ enum ProxyResolver {
         let stampPrefix = parts[0..<2].joined(separator: "_")
         let trailingIdx = parts.last!
         let dir = url.deletingLastPathComponent()
-        for sensor in ["01", "02", "00"] {
-            let candidate = dir.appendingPathComponent(
-                "LRV_\(stampPrefix)_\(sensor)_\(trailingIdx).lrv")
-            if usable(candidate) { return candidate }
+        for sensor in insta360Sensors {
+            for ext in insta360ProxyExtensions {
+                let candidate = dir.appendingPathComponent(
+                    "LRV_\(stampPrefix)_\(sensor)_\(trailingIdx).\(ext)")
+                if usable(candidate) { return candidate }
+            }
         }
         return nil
     }

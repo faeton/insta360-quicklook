@@ -151,7 +151,7 @@ End-to-end Quick Look stack proven on Tahoe (macOS 26.4.1):
   If found, it's used as the AVPlayer source — much smaller (5–10×), H.264
   instead of HEVC, and pre-stitched dual-fisheye showing both cameras.
   Falls back to the .insv itself if no LRV is present.
-  **No longer reachable on macOS 26.6 — see gotcha 11.**
+  **On macOS 26.6 this only works on the boot volume — see gotcha 11.**
 
 ## More gotchas discovered in exp 03
 
@@ -216,7 +216,24 @@ nothing, and the behaviour is identical on internal and external volumes,
 so it is not a removable-media TCC issue — the entitlement simply no
 longer covers files Quick Look didn't hand us.
 
-Consequence: proxy substitution is dead on this OS for both brands.
+**Correction (v0.2.0-beta.1, macOS 26.6.2, tested by @muuksi in #1):** with
+the shipping v0.2 entitlements the result depends on the volume. Same `.OSV`,
+`.LRF` next to it both times:
+
+| location | result |
+|---|---|
+| external SSD | HEVC, one lens — proxy rejected |
+| boot volume | H.264, both lenses — proxy read |
+| boot volume, no `.LRF` | HEVC, one lens — clean fallback |
+
+The external run is byte-identical to the run with no `.LRF`, so the proxy
+is discarded there, not misread. The likeliest cause is that the `["/"]`
+read exception doesn't extend across mount points, and the security scope
+Quick Look grants covers only the file it handed us. The paragraphs below
+describe the original 26.6 measurement, which found it dead on both volume
+types; treat "dead" as "dead off the boot volume".
+
+Consequence: proxy substitution is unreliable on this OS for both brands.
 Worse, it is dead in a way that *breaks* working thumbnails — swapping a
 decodable source (the file we were given) for an undecodable one (a
 sibling we cannot read) makes the extension return nothing at all, where
@@ -254,11 +271,30 @@ pluginkit -m -A -v | grep insta360    # "+" in column 1 means enabled
 
 Needed again after every reinstall, since the appex gets a new UUID.
 
+### 14. Without a type declaration, `.insv` is `public.data` on 26.6 (#4)
+
+v0.2 declares no types and claims the `dyn.*` IDs instead (73de735). On
+macOS 27.2 that works: `UTType(filenameExtension: "insv")` is
+`dyn.ah62d4rv4ge80w5xxs2`. On 26.6.2 ThumbnailsAgent types the same file as
+`public.data` ("Did not find any extension matching content type:
+public.data"), so neither our extension nor anything else is invoked.
+`mdls` disagrees with ThumbnailsAgent here; trust the ThumbnailsAgent log.
+
+Insta360 Studio 6.0.7 has the same shape: its extensions claim the same
+`dyn.*` IDs, and it lists `insv`/`insp` only under `CFBundleDocumentTypes`.
+A baseline on 26.6.2 with no build of ours ever installed confirmed it gives
+**no** thumbnails there: `.insv` and `.insp` both come back as `icon`. DJI
+Studio exports `com.light.studio.thumbnail.osv`, so `.osv`/`.lrf` are fine.
+
+So on 26.6 importing the types costs Studio nothing. Studio's thumbnails and
+preview only depend on the file staying `dyn.*` where `dyn.*` is what the OS
+resolves to.
+
 ## Open risks for v2 / production
 
-- **Proxy substitution is inert on macOS 26.6** — see gotcha 11. The
-  feature degrades silently now, but it means `.insv` shows one lens and
-  `.osv` shows one of its two tracks.
+- **Proxy substitution only works on the boot volume on macOS 26.6** — see
+  gotcha 11. Off it, the feature degrades silently: `.insv` shows one lens
+  and `.osv` shows one of its two tracks.
 - **HEIC `.insp`** — `CGImageSource` handles JPEG and HEIC transparently,
   no extra logic needed.
 - **Insta360 Studio's `DocumentIcon1.icns` claim** — may compete with

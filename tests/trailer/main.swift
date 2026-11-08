@@ -274,10 +274,15 @@ for path in CommandLine.arguments.dropFirst() {
     let clock = TrailerReader.captureWallClock(at: URL(fileURLWithPath: path))
     check("real: \(name) wall clock \(clock ?? "none")", clock != nil)
     if let img, let out = ProcessInfo.processInfo.environment["PANO_OUT"] {
-        let u = URL(fileURLWithPath: out).appendingPathComponent(name + ".png")
-        let d = CGImageDestinationCreateWithURL(u as CFURL, UTType.png.identifier as CFString, 1, nil)!
-        CGImageDestinationAddImage(d, img, nil)
-        CGImageDestinationFinalize(d)
+        let dir = URL(fileURLWithPath: out)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let u = dir.appendingPathComponent(name + ".png")
+        var saved = false
+        if let d = CGImageDestinationCreateWithURL(u as CFURL, UTType.png.identifier as CFString, 1, nil) {
+            CGImageDestinationAddImage(d, img, nil)
+            saved = CGImageDestinationFinalize(d)
+        }
+        check("real: \(name) saved to \(u.path)", saved)
     }
 }
 

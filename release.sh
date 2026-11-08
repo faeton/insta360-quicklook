@@ -33,6 +33,19 @@ echo "+ tests passed"
 echo "+ building $APP ($TAG), signed by $SIGN_ID"
 ./build.sh > /dev/null
 
+# A binary's minos comes from LC_BUILD_VERSION, not the plist, and it only shows
+# on a Mac older than the build machine. v0.2.0-beta.1 shipped minos 27.2 that way.
+WANT_MINOS=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' src/HostInfo.plist)
+for bin in "$APP/Contents/MacOS/Insta360QuickLook" "$APP"/Contents/PlugIns/*.appex/Contents/MacOS/*; do
+    archs=$(lipo -archs "$bin")
+    minos=$(vtool -show-build "$bin" | awk '/minos/ {print $2}' | sort -u | tr '\n' ' ')
+    if [[ "$archs" != "x86_64 arm64" || "${minos% }" != "$WANT_MINOS" ]]; then
+        echo "✗ $bin: archs=$archs minos=$minos (want x86_64 arm64, minos $WANT_MINOS)" >&2
+        exit 1
+    fi
+done
+echo "+ all binaries: x86_64 arm64, minos $WANT_MINOS"
+
 mkdir -p dist
 rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"

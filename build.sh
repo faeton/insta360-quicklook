@@ -13,6 +13,27 @@ SDK=$(xcrun --sdk macosx --show-sdk-path)
 SIGN_ID="${SIGN_ID:--}"
 if [[ "$SIGN_ID" == "-" ]]; then TIMESTAMP=--timestamp=none; else TIMESTAMP=--timestamp; fi
 
+# Without an explicit -target, swiftc stamps the build machine's SDK version
+# into LC_BUILD_VERSION, and LSMinimumSystemVersion in the plist does not
+# override it. v0.2.0-beta.1 shipped minos 27.2 that way: every binary refused
+# to launch below macOS 27.2 with -10825, while the README promised macOS 13+.
+# Pin the target, and build both slices so that promise also covers Intel.
+DEPLOYMENT_TARGET=13.0
+ARCHS=(arm64 x86_64)
+
+# Compile one universal binary: a slice per arch, then lipo them together.
+swift_build() {
+    local out="$1"; shift
+    local slices=()
+    for arch in "${ARCHS[@]}"; do
+        xcrun -sdk macosx swiftc -target "${arch}-apple-macos${DEPLOYMENT_TARGET}" \
+            "$@" -o "${out}.${arch}"
+        slices+=("${out}.${arch}")
+    done
+    lipo -create "${slices[@]}" -output "$out"
+    rm -f "${slices[@]}"
+}
+
 # Regenerate icon if missing
 if [[ ! -f icon/AppIcon.icns ]]; then
     echo "+ generating AppIcon.icns"
@@ -23,9 +44,10 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/PlugIns"
 
 # Host app: registers the extensions when opened and shows their status.
-xcrun -sdk macosx swiftc -parse-as-library -framework AppKit \
+swift_build "$APP/Contents/MacOS/Insta360QuickLook" \
+    -parse-as-library -framework AppKit \
     -framework UniformTypeIdentifiers \
-    src/HostApp.swift -o "$APP/Contents/MacOS/Insta360QuickLook"
+    src/HostApp.swift
 cp src/HostInfo.plist "$APP/Contents/Info.plist"
 cp icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
@@ -55,7 +77,7 @@ build_appex() {
     #   no main.swift, no top-level statements anywhere
     #   ProxyResolver.swift and TrailerReader.swift compiled into both modules
     #   (shared logic)
-    xcrun -sdk macosx swiftc \
+    swift_build "$APPEX/Contents/MacOS/$name" \
         -module-name "$module" \
         -application-extension \
         "${fwflags[@]}" \
@@ -64,8 +86,7 @@ build_appex() {
         -Xlinker -e -Xlinker _NSExtensionMain \
         "${sources[@]}" \
         src/ProxyResolver.swift \
-        src/TrailerReader.swift \
-        -o "$APPEX/Contents/MacOS/$name"
+        src/TrailerReader.swift
 
     cp "$plist" "$APPEX/Contents/Info.plist"
 
